@@ -80,7 +80,8 @@ FAISS
 Dotenv
  – Env variable management
  
- 📌 Roadmap / Future Work
+  
+## 📌 Roadmap / Future Work
 
 Add more MCP servers (finance, news, calendar, etc.)
 
