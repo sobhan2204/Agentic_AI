@@ -558,7 +558,7 @@
 
     <script>
 let conversationHistory = [];
-const API_BASE_URL = 'http://localhost:8080';
+const API_BASE_URL = 'http://localhost:8000';
 
 // Professional response templates
 const professionalResponses = [
@@ -633,14 +633,16 @@ async function sendMessage() {
     showTypingIndicator();
     
     try {
-        // Try to send message to FastAPI backend
+        // Send message to FastAPI client.py backend
         const response = await fetch(`${API_BASE_URL}/chat`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
             },
             body: JSON.stringify({
-                message: message
+                message: message,
+                conversation_id: 'web_session_' + Date.now()
             })
         });
         
@@ -653,15 +655,17 @@ async function sendMessage() {
         hideTypingIndicator();
         
         // Add AI response from API
-        if (data.status === 'success') {
+        if (data.response) {
             addMessage(data.response);
+        } else if (data.error) {
+            addMessage(`<strong>SYSTEM ERROR</strong><br>Error: ${data.error}`, false);
         } else {
-            addMessage(`<strong>SYSTEM ERROR</strong><br>Error Code: ${data.response}`, false);
+            addMessage(`<strong>SYSTEM ERROR</strong><br>Unexpected response format`, false);
         }
         
     } catch (error) {
         // Fallback to demo mode if API is not available
-        console.log('API not available, using enterprise demo mode:', error);
+        console.log('FastAPI client not available, using enterprise demo mode:', error);
         
         // Simulate API delay for demo
         setTimeout(() => {
@@ -674,12 +678,16 @@ async function sendMessage() {
 
 async function clearChat() {
     try {
-        // Try to clear chat via API
+        // Try to clear chat via FastAPI client
         const response = await fetch(`${API_BASE_URL}/clear`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-            }
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+                conversation_id: 'web_session_' + Date.now()
+            })
         });
         
         if (!response.ok) {
@@ -688,14 +696,14 @@ async function clearChat() {
         
         const data = await response.json();
         
-        // Clear frontend messages with API success message
+        // Clear frontend messages
         const messagesContainer = document.getElementById('chatMessages');
         messagesContainer.innerHTML = `
             <div class="message assistant">
                 <div class="message-avatar">AI</div>
                 <div class="message-content">
                     <strong>SYSTEM RESET COMPLETE</strong><br><br>
-                    All conversation data cleared. FAISS neural memory database reinitialized. System ready for new session deployment.
+                    ${data.message || 'All conversation data cleared. FAISS neural memory database reinitialized. System ready for new session deployment.'}
                 </div>
             </div>
         `;
@@ -703,7 +711,7 @@ async function clearChat() {
         
     } catch (error) {
         // Fallback to local clear if API is not available
-        console.log('API not available for clear, clearing locally:', error);
+        console.log('FastAPI client not available for clear, clearing locally:', error);
         
         const messagesContainer = document.getElementById('chatMessages');
         messagesContainer.innerHTML = `
@@ -722,16 +730,22 @@ async function clearChat() {
 // Check server health on page load
 async function checkServerHealth() {
     try {
-        const response = await fetch(`${API_BASE_URL}/health`);
+        const response = await fetch(`${API_BASE_URL}/health`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        });
+        
         if (response.ok) {
             const data = await response.json();
-            console.log('Server health:', data);
+            console.log('FastAPI client health:', data);
             
             // Update status indicator
             const statusDot = document.querySelector('.status-dot');
             const statusText = document.querySelector('.status-indicator span');
             
-            if (data.mcp_initialized) {
+            if (data.status === 'healthy' || data.mcp_servers_connected || data.servers_status) {
                 statusDot.style.background = '#48bb78';
                 statusText.textContent = 'SYSTEM ONLINE';
             } else {
@@ -740,7 +754,7 @@ async function checkServerHealth() {
             }
         }
     } catch (error) {
-        console.log('Server health check failed, demo mode available:', error);
+        console.log('FastAPI client health check failed, demo mode available:', error);
         const statusDot = document.querySelector('.status-dot');
         const statusText = document.querySelector('.status-indicator span');
         statusDot.style.background = '#e53e3e';
