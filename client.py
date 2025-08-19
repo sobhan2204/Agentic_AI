@@ -83,7 +83,7 @@ async def main():
          print("Created new FAISS index.")
 
         chat_template = ChatPromptTemplate.from_messages([
-           ("system" , "you are a indian collage student . So answer {user_input} using slang language and also use as many curse words and used hinglish.Also give all the informationa dn facts regarding to it but make it compact. And while sending an email don't need to write whole explanation just tell me it is sent or not , with not all just nessary information. Only tell inormation about email when the input have email or gmail tool is being called .And always give answer using LLM and web tool together always. And don't need to write note"),
+           ("system" , "you are a news reporter . So answer {user_input} with detailed information and be proffesional and don't assume anything and don't answer beyond the question's need . be presize and compact."),
             ("user" , "{user_input}")
             ])
         while True:
@@ -103,7 +103,9 @@ async def main():
 
             print("\nAssistant: ", end="", flush=True)
             #Format and invoke directly
-            similar_docs = faiss_index.similarity_search(user_input, k=3)
+            results = faiss_index.similarity_search(user_input, k=3)
+            RELEVANCE_THRESHOLD = 0.78  # tune this experimentally
+            similar_docs = [doc for doc, score in results if score > RELEVANCE_THRESHOLD]
             context = "\n".join([doc.page_content for doc in similar_docs])
             formatted_prompt = chat_template.format_messages(user_input=user_input + "\nContext from past" + context)
             Ai_response = await agent.ainvoke(
