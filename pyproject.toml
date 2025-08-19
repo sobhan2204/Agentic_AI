@@ -1,0 +1,40 @@
+[project]
+name = "agentic-ai-mcp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "python-dotenv",
+    "fastmcp>=2.10.2",
+    "langchain-groq>=0.3.5",
+    "langchain-mcp-adapters>=0.1.8",
+    "langgraph>=0.5.1",
+    "mcp>=1.10.1",
+    "ipykernel>=6.29.5",
+    "langchain-community>=0.3.27",
+    "tiktoken>=0.9.0",
+    "langchain-openai>=0.3.27",
+    "langchainhub>=0.1.21",
+    "chromadb>=1.0.15",
+    "langchain>=0.3.26",
+    "bs4>=0.0.2",
+    "lara-sdk>=1.4.2",
+    "requests>=2.32.4",
+    "beautifulsoup4>=4.13.4",
+    "mcp-use>=1.3.6",
+    "langchain-tavily>=0.2.7",
+    "google-auth-oauthlib>=1.2.2",
+    "google-auth-httplib2>=0.2.0",
+    "google-api-python-client>=2.176.0",
+    "fastapi>=0.116.1",
+    "uvicorn>=0.35.0",
+    "langchain-core>=0.3.68",
+    "pydantic>=2.11.7",
+    "python-multipart>=0.0.20",
+    "sentence-transformers>=5.0.0",
+    "pypdf>=5.8.0",
+    "google-auth>=2.40.3",
+    "faiss-cpu>=1.11.0.post1",
+    "langchain-huggingface>=0.3.1",
+]

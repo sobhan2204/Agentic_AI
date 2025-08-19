@@ -1,0 +1,15 @@
+{
+    "name": "get_alerts",
+    "description": "Get weather alerts for a US state. Provide a two-letter state code (e.g., CA, NY) to receive active weather alerts.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "description": "Two-letter US state code (e.g., CA, NY)"
+        }
+      },
+      "required": ["state"]
+    }
+  }
+  
