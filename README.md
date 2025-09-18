@@ -53,17 +53,17 @@ graph TD
 
 
 ## 🗂 Project Structure
-Agentic_AI/
-├── main.py              # Main entry point
-├── mathserver.py        # Math agent (MCP)
-├── translate.py         # Translator agent (MCP)
-├── websearch.py         # Web search agent
-├── gmail.py             # Gmail integration
-├── rag_model.py         # Optional RAG pipeline
-├── mcp_use.py           # MCP agent utilities
-├── requirements.txt     # Dependencies
-├── .env                 # API keys & config
-└── README.md            # This file
+ Agentic_AI/
+ ├── main.py              # Main entry point
+ ├── mathserver.py        # Math agent (MCP)
+ ├── translate.py         # Translator agent (MCP)
+ ├── websearch.py         # Web search agent
+ ├── gmail.py             # Gmail integration
+ ├── rag_model.py         # Optional RAG pipeline
+ ├── mcp_use.py           # MCP agent utilities
+ ├── requirements.txt     # Dependencies
+ ├── .env                 # API keys & config
+ └── README.md            # This file
 
 ## ⚙️ Getting Started
 1️⃣ Clone the repository
