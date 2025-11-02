@@ -5,7 +5,7 @@ from typing import Optional, List, Dict, Any
 from fastmcp import FastMCP
 
 # Initialize FastMCP
-#mcp = FastMCP("Spotify Music Player")
+mcp = FastMCP("Spotify Music Player")
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -67,7 +67,7 @@ class SpotifyAuth:
 # Initialize auth
 auth = SpotifyAuth()
 
-#@mcp.tool()
+@mcp.tool()
 def search_tracks(query: str, limit: int = 20) -> Dict[str, Any]:
     """
     Search for tracks on Spotify
@@ -125,7 +125,7 @@ def search_tracks(query: str, limit: int = 20) -> Dict[str, Any]:
             'error': f"An error occurred: {str(e)}"
         }
 
-#@mcp.tool()
+@mcp.tool()
 def search_artists(query: str, limit: int = 20) -> Dict[str, Any]:
     """
     Search for artists on Spotify
@@ -182,7 +182,7 @@ def search_artists(query: str, limit: int = 20) -> Dict[str, Any]:
             'error': f"An error occurred: {str(e)}"
         }
 
-#@mcp.tool()
+@mcp.tool()
 def get_track_details(track_id: str) -> Dict[str, Any]:
     """
     Get detailed information about a specific track
@@ -235,7 +235,7 @@ def get_track_details(track_id: str) -> Dict[str, Any]:
             'error': f"An error occurred: {str(e)}"
         }
 
-#@mcp.tool()
+@mcp.tool()
 def get_artist_top_tracks(artist_id: str, country: str = 'US') -> Dict[str, Any]:
     """
     Get an artist's top tracks
@@ -285,8 +285,7 @@ def get_artist_top_tracks(artist_id: str, country: str = 'US') -> Dict[str, Any]
             'success': False,
             'error': f"An error occurred: {str(e)}"
         }
-
-#@mcp.tool()
+@mcp.tool()
 def create_playlist_url(track_ids: List[str], playlist_name: str = "My Playlist") -> Dict[str, Any]:
     """
     Create a Spotify playlist URL with specified tracks
@@ -329,7 +328,7 @@ def create_playlist_url(track_ids: List[str], playlist_name: str = "My Playlist"
             'error': f"An error occurred: {str(e)}"
         }
 
-#@mcp.tool()
+@mcp.tool()
 def get_audio_features(track_id: str) -> Dict[str, Any]:
     """
     Get audio features for a track (danceability, energy, etc.)
@@ -378,7 +377,7 @@ def get_audio_features(track_id: str) -> Dict[str, Any]:
             'error': f"An error occurred: {str(e)}"
         }
 
-#@mcp.tool()
+@mcp.tool()
 def search_and_play(query: str, play_first: bool = True) -> Dict[str, Any]:
     """
     Search for tracks and return playable information
@@ -495,3 +494,6 @@ if 'result3' in locals():
     print("result3 (get_audio_features):", result3, '\n')
 else:
     print("result3: Could not get audio features - no search results available\n")
+if __name__ == "__main__":
+    mcp.run(transport="stdio")  # useful if we want to run the server in the terminal locally in this
+    #we will get the input and output in the teminal itself

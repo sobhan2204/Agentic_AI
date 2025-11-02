@@ -38,6 +38,11 @@ async def main():
             "args": ["mathserver.py"],
             "transport": "stdio",
         },
+        'math2': {
+            "command": "python",
+            "args": ["maths_server2.py"],
+            "transport": "stdio",
+        },
         "weather": {
             "url": "http://localhost:8000/mcp",
             "transport": "streamable_http",
@@ -57,11 +62,17 @@ async def main():
             "args": ["gmail.py"],
             "transport": "stdio",
         },
+        "music-player": {
+            "command": "python",
+            "args": ["music_player.py"],
+            "transport": "stdio",
+        },
         "Rag": {
             "command": "python",
             "args": ["Rag.py"],
             "transport": "stdio",
         }
+
     }
     
     working_servers = {}

@@ -349,3 +349,7 @@ def matrix_operations(
             "error": str(e),
             "success": False
         }
+
+if __name__ == "__main__":
+    mcp.run(transport="stdio")  # useful if we want to run the server in the terminal locally in this
+    #we will get the input and output in the teminal itself

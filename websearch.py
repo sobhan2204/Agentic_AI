@@ -3,6 +3,7 @@ from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 import os
 
+#mcp = FastMCP("websearch-mcp-server")
 mcp = FastMCP("websearch-mcp-server")
 
 from dotenv import load_dotenv
@@ -28,8 +29,12 @@ async def search_web(query : str) -> str:
     return tool.invoke(query)
 
 #mcp.run(transport="stdio")
-if __name__ == "_main()__":
-#     import asyncio
-#     query = input("Enter query to search: ")
-#     result  = asyncio.run(search_web(query))
-#     print("AI : ",result)
+#if __name__ == "_main()__":
+#  mcp.run(transport="stdio")
+#import asyncio
+#query = input("Enter query to search: ")
+#result  = asyncio.run(search_web(query))
+#print("AI : ",result)
+if __name__ == "__main__":
+    mcp.run(transport="stdio")  # useful if we want to run the server in the terminal locally in this
+    #we will get the input and output in the teminal itself
