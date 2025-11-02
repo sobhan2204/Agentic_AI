@@ -54,7 +54,7 @@ graph TD
 
 ## 🗂 Project Structure
  Agentic_AI/
- ├── main.py              # Main entry point
+ ├── main.py              # Main entry point  
  ├── mathserver.py        # Math agent (MCP)
  ├── translate.py         # Translator agent (MCP)
  ├── websearch.py         # Web search agent

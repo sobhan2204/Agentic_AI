@@ -37,6 +37,7 @@ dependencies = [
     { name = "python-multipart" },
     { name = "requests" },
     { name = "sentence-transformers" },
+    { name = "sympy" },
     { name = "tiktoken" },
     { name = "uvicorn" },
 ]
@@ -73,6 +74,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "requests", specifier = ">=2.32.4" },
     { name = "sentence-transformers", specifier = ">=5.0.0" },
+    { name = "sympy", specifier = ">=1.14.0" },
     { name = "tiktoken", specifier = ">=0.9.0" },
     { name = "uvicorn", specifier = ">=0.35.0" },
 ]

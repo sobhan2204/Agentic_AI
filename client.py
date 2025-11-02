@@ -13,6 +13,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from datetime import datetime
+import traceback
+
 
 
 memory = MemorySaver()
@@ -52,6 +54,16 @@ async def main():
                 "args": ["gmail.py"],
                 "transport": "stdio",
             },
+            "maths-mcp-server": {
+                "command": "python",
+                "args": ["maths_server2.py"],
+                "transport": "stdio",
+            },
+            "music-player": {
+                "command": "python",
+                "args": ["music_player.py"],
+                "transport": "stdio",
+            },
             #"Rag": {
             #    "command": "python",
             #    "args": ["Rag_model.py"],
@@ -73,21 +85,30 @@ async def main():
     
     
     try:
+        # for faiss
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         index_path = "faiss_index"
         if os.path.exists(index_path):
            faiss_index = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
            print("Loaded existing FAISS index.")
         else:
+            # if os path of fasiss is not present then create a new one
          faiss_index = FAISS.from_texts(["initial text"], embeddings)
          print("Created new FAISS index.")
 
+
         chat_template = ChatPromptTemplate.from_messages([
-           ("system" , "you are a news reporter . So answer {user_input} with detailed information and be proffesional and don't assume anything and don't answer beyond the question's need . be presize and compact."),
+           ("system" , "You are a helpful assistant. Always base your answer on the given search results. If the answer is not in the results, say: 'I couldn't find reliable info.'"),
             ("user" , "{user_input}")
             ])
         while True:
             user_input = input("\nYou: ")
+            #search_tool = next(t for t in tools if t.name == "websearch")
+            
+            #search_results = await search_tool.invoke({"query": user_input})
+            #context_from_web = "\n".join(
+            #[f"- {r.get('snippet','')} ({r.get('url','')})" for r in search_results.get("results", [])])   
+
             faiss_index.add_texts([user_input], metadatas=[{"source": "user", "timestamp": str(datetime.now())}])
             if user_input.lower() in ["exit", "quit","q"]:
                 faiss_index.save_local(index_path)
@@ -104,9 +125,13 @@ async def main():
             print("\nAssistant: ", end="", flush=True)
             #Format and invoke directly
             results = faiss_index.similarity_search(user_input, k=3)
-            RELEVANCE_THRESHOLD = 0.78  # tune this experimentally
-            similar_docs = [doc for doc, score in results if score > RELEVANCE_THRESHOLD]
-            context = "\n".join([doc.page_content for doc in similar_docs])
+            #RELEVANCE_THRESHOLD = 0.78  # tune this experimentally
+            similar_docs = results
+            context_from_faiss = "\n".join([doc.page_content for doc in similar_docs])
+            #Web Search Results: {context_from_web}
+            context = f"""
+            Conversation Context: {context_from_faiss}
+            """
             formatted_prompt = chat_template.format_messages(user_input=user_input + "\nContext from past" + context)
             Ai_response = await agent.ainvoke(
                 {"messages": [{"role": "user", "content": user_input}]}
@@ -121,6 +146,7 @@ async def main():
             
     except Exception as e:
         print(f"An error occurred: {e}")
+        traceback.print_exc()
     finally:
         # Clean up clients if needed
         print("Shutting down...")

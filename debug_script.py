@@ -8,7 +8,6 @@ import asyncio
 import sys
 import os
 from langchain_mcp_adapters.client import MultiServerMCPClient
-
 async def test_individual_server(name, config):
     """Test a single MCP server"""
     print(f"Testing {name}...", end=" ", flush=True)

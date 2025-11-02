@@ -27,9 +27,9 @@ async def search_web(query : str) -> str:
 
     return tool.invoke(query)
 
-mcp.run(transport="stdio")
-#if __name__ == "__main__":
-#    import asyncio
-#    query = input("Enter query to search: ")
-#    result  = asyncio.run(search_web(query))
-#    print("AI : ",result)
+#mcp.run(transport="stdio")
+if __name__ == "_main()__":
+#     import asyncio
+#     query = input("Enter query to search: ")
+#     result  = asyncio.run(search_web(query))
+#     print("AI : ",result)
