@@ -4,3 +4,4 @@ __pycache__
 OllamaSetup.exe
 .env
 credentials.json
+token.json
