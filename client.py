@@ -30,7 +30,7 @@ async def main():
 
     clients = MultiServerMCPClient(
         {
-            "math": {
+            "math_server": {
                 "command": "python",
                 "args": ["mathserver.py"],
                 "transport": "stdio",
@@ -53,22 +53,7 @@ async def main():
                 "command": "python",
                 "args": ["gmail.py"],
                 "transport": "stdio",
-            },
-            "maths-mcp-server": {
-                "command": "python",
-                "args": ["maths_server2.py"],
-                "transport": "stdio",
-            },
-            "music-player": {
-                "command": "python",
-                "args": ["music_player.py"],
-                "transport": "stdio",
-            },
-            #"Rag": {
-            #    "command": "python",
-            #    "args": ["Rag_model.py"],
-            #    "transport": "stdio",
-            #}
+            }
         }
     )
 
