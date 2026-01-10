@@ -173,10 +173,5 @@ async def get_environment_report(place: str) -> dict:
     }
 
 
-# if __name__ == "__main__":
-#     mcp.run(transport="streamable-http")
-
-
 if __name__ == "__main__":
-    result = asyncio.run(get_environment_report("Delhi, India"))
-    print(result)
+    mcp.run(transport="streamable-http")
