@@ -37,19 +37,47 @@ graph TD
 
 ## 🚀 Features
 
-  ⚡ Fast & Scalable: Powered by Groq’s LLaMA-3-70B
+### 🎯 Core Intelligence Features
 
- 🧮 Math Agent: Handles calculations & symbolic tasks
+ **Intent-Based Query Routing**: Automatically detects conversational vs. task-based queries, bypassing unnecessary tool planning for greetings and casual chat for more natural interactions
 
- 🌍 Translator Agent: Supports multilingual conversations
+ **Plan-Verify-Execute Architecture**: Sophisticated 3-stage pipeline with Planner (breaks complex tasks into JSON plans), Executor (executes steps with context), and Verifier (validates outputs with smart retry logic)
 
- 📧 Gmail Agent: Reads & interacts with Gmail API
+ **Smart Rule-Based Verification**: Multi-layer validation including step count validation, tool compliance checking, goal satisfaction analysis, freshness detection for news queries, and generic failure detection
 
- 🔍 Web Search Agent: Searches online data for better answers
+ **Adaptive Retry Mechanism**: Self-correcting system with up to 2 retries, providing specific retry hints to executors for automatic error recovery without user intervention
 
- 🧠 Persistent Memory: Remembers conversations using FAISS + embeddings
+### 🛠️ Tool & Integration Features
 
- 🧹 Memory Reset: Use clear to reset past memory when needed
+ ⚡ **Fast & Scalable**: Powered by Groq's LLaMA-3-70B for blazing fast inference
+
+ 🧮 **Math Agent**: Handles calculations & symbolic tasks
+
+ 🌍 **Translator Agent**: Supports multilingual conversations
+
+ 📧 **Gmail Agent**: Reads & interacts with Gmail API
+
+ 🔍 **Web Search Agent**: Searches online data for better answers
+
+ 🌦️ **Weather Agent**: Provides current weather, air quality, and environmental reports
+
+ **Multi-Transport MCP Integration**: Supports multiple MCP servers with stdio and streamable_http transports for mixing local and remote tools seamlessly
+
+### 🧠 Memory & Context Features
+
+ **Persistent Conversational Memory**: FAISS vector database with HuggingFace embeddings stores and retrieves conversation context semantically
+
+ **Context-Aware Responses**: Retrieves top 3 relevant past interactions for maintaining conversation continuity
+
+ **Cross-Session Memory**: Maintains conversation history across sessions with persistent storage
+
+ 🧹 **Memory Reset**: Use `clear` to reset past memory when needed
+
+### 🌐 Deployment Features
+
+ **Web Interface Ready**: FastAPI integration with CORS support for web deployment and frontend interfaces
+
+ **RESTful API**: Production-ready API endpoints for chat interactions
 
 
 ## 🗂 Project Structure
