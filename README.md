@@ -23,16 +23,49 @@
 Here’s how the system is designed:
 
 ```mermaid
-graph TD
-    User[User Input] --> MainAgent[Main Agent]
-    MainAgent --> MCP[Math Agent]
-    MainAgent --> MCP[Translation Agent]
-    MainAgent --> MCP[Gmail Agent]
-    MainAgent --> MCP[Web Search Agent]
-    MainAgent --> Memory[FAISS + Embeddings]
-    Memory --> MainAgent
-    MainAgent --> Response[Context-Aware Answer]
-
+graph TB
+    User[👤 User Input] --> IntentRouter{🎯 Intent-Based<br/>Router}
+    
+    IntentRouter -->|Conversational| DirectAgent[💬 Direct Response<br/>Agent]
+    IntentRouter -->|Task-Based| Planner[📋 Task Planner<br/>LLaMA-3.1-8B]
+    
+    Planner -->|JSON Plan| Executor[⚙️ Plan Executor<br/>LLaMA-3.1-8B]
+    
+    Executor --> Tools[🛠️ MCP Tool Suite]
+    Tools --> Math[🧮 Math Server<br/>stdio]
+    Tools --> Translate[🌍 Translator<br/>stdio]
+    Tools --> Gmail[📧 Gmail API<br/>stdio]
+    Tools --> WebSearch[🔍 Web Search<br/>stdio]
+    Tools --> Weather[🌦️ Weather<br/>HTTP]
+    
+    Executor -->|Results| Verifier{✅ Rule-Based<br/>Verifier}
+    
+    Verifier -->|PASS| FinalAnswer[📤 Final Answer]
+    Verifier -->|RETRY<br/>Max 2x| Executor
+    Verifier -->|FAIL| ErrorHandler[❌ Error Handler]
+    
+    DirectAgent --> Memory[(🧠 FAISS Vector DB<br/>HuggingFace Embeddings)]
+    Executor --> Memory
+    Memory -->|Top 3 Context| Executor
+    Memory -->|Context| DirectAgent
+    
+    FinalAnswer --> User
+    DirectAgent --> User
+    ErrorHandler --> User
+    
+    subgraph "🌐 Web Interface"
+        API[FastAPI Server<br/>CORS Enabled]
+    end
+    
+    User -.->|HTTP| API
+    API -.-> IntentRouter
+    
+    style IntentRouter fill:#ff9999
+    style Planner fill:#99ccff
+    style Executor fill:#99ccff
+    style Verifier fill:#99ff99
+    style Memory fill:#ffcc99
+    style Tools fill:#e6b3ff
 ```
 
 ## 🚀 Features
@@ -49,7 +82,7 @@ graph TD
 
 ### 🛠️ Tool & Integration Features
 
- ⚡ **Fast & Scalable**: Powered by Groq's LLaMA-3-70B for blazing fast inference
+ ⚡ **Fast & Scalable**: Powered by Groq's LLM for blazing fast inference
 
  🧮 **Math Agent**: Handles calculations & symbolic tasks
 
