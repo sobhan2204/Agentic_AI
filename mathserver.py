@@ -14,16 +14,12 @@ load_dotenv()
 def call_llm(system_prompt: str, user_prompt: str, temperature: float = 0) -> str:
     """
     Calls Groq's OpenAI-compatible Chat Completions API and returns the content string.
-
-    Env vars:
-      - GROQ_API_KEY: required
-      - GROQ_MODEL: optional (default: "llama-3.3-70b-versatile")
     """
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError("GROQ_API_KEY is not set. Ensure it exists in your .env file.")
 
-    model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    model = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
 
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
@@ -42,7 +38,6 @@ def call_llm(system_prompt: str, user_prompt: str, temperature: float = 0) -> st
 
     resp = requests.post(url, headers=headers, json=payload, timeout=30)
     if resp.status_code != 200:
-        # Surface helpful error details but avoid leaking secrets
         try:
             details = resp.json()
         except Exception:
@@ -63,17 +58,44 @@ You are a mathematical query parser.
 Rules:
 - Do NOT solve the problem.
 - Convert natural language math into structured JSON.
-- Use standard math notation.
-- For the expression: return ONLY the left side of the equation (the part that equals 0).
-  Example: For "x^2 + 3x + 2 = 0", return expression as "x^2 + 3*x + 2" (NOT "x^2 + 3*x + 2 = 0").
-- Use ^ for powers and * for multiplication in the expression.
+- Identify the task type: derivative, integral, solve_equation, simplify, or evaluate.
+- Use standard math notation with * for multiplication and ^ for powers.
+- For equations: return ONLY the left side (the part that equals 0).
 - Output ONLY valid JSON.
 
-JSON format:
+JSON format examples:
+
+For derivative:
+{
+  "task": "derivative",
+  "expression": "x^2 - 3*x",
+  "variable": "x"
+}
+
+For integral:
+{
+  "task": "integral",
+  "expression": "x^2 + 2*x",
+  "variable": "x"
+}
+
+For equation:
 {
   "task": "solve_equation",
-  "expression": "<expression>",
+  "expression": "x^2 + 3*x + 2",
   "variables": ["x"]
+}
+
+For simplify:
+{
+  "task": "simplify",
+  "expression": "(x+2)^2"
+}
+
+For evaluate:
+{
+  "task": "evaluate",
+  "expression": "2^3 + 4*5"
 }
 """
 
@@ -82,13 +104,13 @@ def extract_math_with_llm(query: str) -> dict:
     response = call_llm(
         system_prompt=EXTRACTION_SYSTEM_PROMPT,
         user_prompt=query,
-        temperature=0
+        temperature=0.5
     )
 
     try:
         parsed = json.loads(response)
     except json.JSONDecodeError:
-        # Fallback: try to extract a JSON object if wrapped in fences or extra text
+        # Fallback: try to extract a JSON object
         start = response.find("{")
         end = response.rfind("}")
         if start != -1 and end != -1 and end > start:
@@ -100,7 +122,7 @@ def extract_math_with_llm(query: str) -> dict:
         else:
             raise ValueError("LLM did not return valid JSON")
     
-    # Clean the expression: remove trailing "= 0" if present, and convert ^ to **
+    # Clean the expression
     if "expression" in parsed:
         expr = parsed["expression"].strip()
         # Remove "= 0" at the end if present
@@ -115,11 +137,9 @@ def extract_math_with_llm(query: str) -> dict:
     return parsed
 
 
-
 def validate_expression(expr: str, variables: list[str]) -> None:
     symbols = {v: sp.symbols(v) for v in variables}
     sp.sympify(expr, locals=symbols)
-
 
 
 def build_numeric_function(expr: str, var: str):
@@ -128,83 +148,139 @@ def build_numeric_function(expr: str, var: str):
     func = sp.lambdify(x, sym_expr, modules=["numpy"])
     return func
 
+
 def solve_numerically(func, initial_guess=1.0):
     sol = fsolve(func, x0=initial_guess)
     return sol.tolist()
 
 
-@mcp.tool()#(name="solve_math", description="Solve mathematical equations from natural language queries")
+@mcp.tool()
 def solve_math(query: str) -> dict:
     """
-    Agentic math solver:
-    - LLM extracts equation
-    - SciPy solves numerically
+    Comprehensive math solver that handles:
+    - Derivatives
+    - Integrals
+    - Equation solving
+    - Simplification
+    - Evaluation
     """
 
     # Step 1: LLM extraction
-    parsed = extract_math_with_llm(query)
-
-    if parsed.get("task") != "solve_equation":
-        return {
-            "error": "Only equation solving is supported in this tool."
-        }
-
-    expression = parsed["expression"]
-    variables = parsed["variables"]
-
-    if len(variables) != 1:
-        return {
-            "error": "Only single-variable equations are supported."
-        }
-
-    var = variables[0]
-
-    # Step 2: Validate
     try:
-        validate_expression(expression, variables)
+        parsed = extract_math_with_llm(query)
+    except Exception as e:
+        return {"error": f"Failed to parse query: {str(e)}"}
+
+    task = parsed.get("task")
+    expression = parsed.get("expression", "")
+
+    # Handle different task types
+    try:
+        if task == "derivative":
+            variable = parsed.get("variable", "x")
+            x = sp.symbols(variable)
+            expr = sp.sympify(expression)
+            result = sp.diff(expr, x)
+            
+            return {
+                "query": query,
+                "task": "derivative",
+                "expression": expression,
+                "variable": variable,
+                "result": str(result),
+                "latex": sp.latex(result)
+            }
+
+        elif task == "integral":
+            variable = parsed.get("variable", "x")
+            x = sp.symbols(variable)
+            expr = sp.sympify(expression)
+            result = sp.integrate(expr, x)
+            
+            return {
+                "query": query,
+                "task": "integral",
+                "expression": expression,
+                "variable": variable,
+                "result": str(result) + " + C",
+                "latex": sp.latex(result) + " + C"
+            }
+
+        elif task == "solve_equation":
+            variables = parsed.get("variables", ["x"])
+            
+            if len(variables) != 1:
+                return {"error": "Only single-variable equations are supported."}
+            
+            var = variables[0]
+            
+            # Validate
+            validate_expression(expression, variables)
+            
+            # Try symbolic solution first
+            try:
+                x = sp.symbols(var)
+                sym_expr = sp.sympify(expression)
+                symbolic_solutions = sp.solve(sym_expr, x)
+                
+                if symbolic_solutions:
+                    return {
+                        "query": query,
+                        "task": "solve_equation",
+                        "expression": f"{expression} = 0",
+                        "variable": var,
+                        "solutions": [str(sol) for sol in symbolic_solutions],
+                        "method": "symbolic (SymPy)"
+                    }
+            except:
+                pass
+            
+            # Fallback to numerical solution
+            func = build_numeric_function(expression, var)
+            solutions = solve_numerically(func)
+            
+            return {
+                "query": query,
+                "task": "solve_equation",
+                "expression": f"{expression} = 0",
+                "variable": var,
+                "solutions": solutions,
+                "method": "numerical (SciPy fsolve)"
+            }
+
+        elif task == "simplify":
+            expr = sp.sympify(expression)
+            result = sp.simplify(expr)
+            
+            return {
+                "query": query,
+                "task": "simplify",
+                "expression": expression,
+                "result": str(result),
+                "latex": sp.latex(result)
+            }
+
+        elif task == "evaluate":
+            expr = sp.sympify(expression)
+            result = expr.evalf()
+            
+            return {
+                "query": query,
+                "task": "evaluate",
+                "expression": expression,
+                "result": str(result)
+            }
+
+        else:
+            return {
+                "error": f"Unsupported task type: {task}. Supported: derivative, integral, solve_equation, simplify, evaluate"
+            }
+
     except Exception as e:
         return {
-            "error": f"Invalid mathematical expression: {str(e)}"
+            "error": f"Failed to process {task}: {str(e)}"
         }
 
-    # Step 3: Build numeric function
-    try:
-        func = build_numeric_function(expression, var)
-    except Exception as e:
-        return {
-            "error": f"Failed to build numeric function: {str(e)}"
-        }
-
-    # Step 4: Solve
-    try:
-        solutions = solve_numerically(func)
-    except Exception as e:
-        return {
-            "error": f"Numerical solver failed: {str(e)}"
-        }
-
-    return {
-        "query": query,
-        "expression": f"{expression} = 0",
-        "variable": var,
-        "solutions": solutions,
-        "method": "numerical (SciPy fsolve)"
-    }
-
-
-# if __name__ == "__main__":
-#     # For local testing
-#     test_queries = [
-#         "Solve for x: 2x^2 - 4x - 6 = 0",
-#         "Find the roots of the equation x^3 - 6x^2 + 11x - 6 = 0",
-#         "What is x if x^2 + 3x + 2 = 0?"
-#     ]
-
-#     for query in test_queries:
-#         result = solve_math(query)
-#         print(f"Query: {query}")
-#         print(f"Result: {result}")
-#         print("-" * 40)
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")
