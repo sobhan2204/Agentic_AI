@@ -1,0 +1,70 @@
+{
+  "tool_keywords": {
+    "math_server": {
+      "keywords": [
+        "calculate", "math", "solve", "equation", "add", "subtract",
+        "multiply", "divide", "compute", "algebra", "geometry",
+        "sum", "difference", "product", "quotient", "square root",
+        "power", "exponential", "logarithm", "trigonometry",
+        "sin", "cos", "tan", "integral", "derivative"
+      ],
+      "description": "Mathematical calculations and problem solving"
+    },
+    "weather": {
+      "keywords": [
+        "weather", "temperature", "forecast", "rain", "snow",
+        "climate", "air quality", "humidity", "wind", "cloudy",
+        "sunny", "storm", "precipitation", "celsius", "fahrenheit",
+        "hot", "cold", "warm", "cool", "aqi", "pollution"
+      ],
+      "description": "Weather information and environmental data"
+    },
+    "translate": {
+      "keywords": [
+        "translate", "translation", "language", "convert to",
+        "say in", "french", "spanish", "german", "chinese",
+        "japanese", "korean", "arabic", "russian", "portuguese",
+        "italian", "hindi", "bengali", "urdu", "mean in",
+        "how do you say"
+      ],
+      "description": "Language translation services"
+    },
+    "websearch": {
+      "keywords": [
+        "search", "find", "look up", "google", "web", "internet",
+        "browse", "url", "website", "link", "pdf", "download",
+        "scrape", "fetch", "retrieve", "online", "query","latest",
+        "current" , "news" , "today"
+      ],
+      "description": "Web search and content retrieval"
+    },
+    "gmail": {
+      "keywords": [
+        "email", "gmail", "send", "read", "inbox", "mail",
+        "message", "recipient", "compose", "reply", "forward",
+        "attachment", "subject", "from", "to", "cc", "bcc"
+      ],
+      "description": "Gmail operations (send and read emails)"
+    }
+  },
+  "priority_rules": {
+    "exact_matches": [
+      {
+        "pattern": "translate .* to .*",
+        "tool": "translate"
+      },
+      {
+        "pattern": "what is .* weather",
+        "tool": "weather"
+      },
+      {
+        "pattern": "send email to .*",
+        "tool": "gmail"
+      },
+      {
+        "pattern": "search (for|about) .*",
+        "tool": "websearch"
+      }
+    ]
+  }
+}

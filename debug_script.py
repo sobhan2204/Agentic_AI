@@ -33,14 +33,9 @@ async def main():
     print("=" * 40)
     
     servers = {
-        "math": {
+        "math_server": {
             "command": "python",
             "args": ["mathserver.py"],
-            "transport": "stdio",
-        },
-        'math2': {
-            "command": "python",
-            "args": ["maths_server2.py"],
             "transport": "stdio",
         },
         "weather": {
@@ -61,18 +56,7 @@ async def main():
             "command": "python",
             "args": ["gmail.py"],
             "transport": "stdio",
-        },
-        "music-player": {
-            "command": "python",
-            "args": ["music_player.py"],
-            "transport": "stdio",
-        },
-        "Rag": {
-            "command": "python",
-            "args": ["Rag.py"],
-            "transport": "stdio",
         }
-
     }
     
     working_servers = {}
@@ -119,10 +103,10 @@ async def main():
     print("\n" + "=" * 40)
     
     if working_servers:
-        print("✅ You can run client.py now")
+        print("Tools are available")
         return True
     else:
-        print("❌ Fix the server issues before running client.py")
+        print(" Fix the server issues before running client.py")
         print("\nTroubleshooting tips:")
         print("1. Make sure all .py files exist in the current directory")
         print("2. Check that your .env file has GROQ_API_KEY")

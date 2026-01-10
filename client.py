@@ -1,21 +1,15 @@
-from pyexpat import model
-from langchain_core.callbacks import LLMManagerMixin
-from langchain_core.language_models import llms
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 import asyncio
-from mcp_use import MCPAgent, MCPClient
 import os
-from langchain_core.prompts import ChatPromptTemplate
-from langgraph.checkpoint.memory import MemorySaver
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from datetime import datetime
 import traceback
-
-
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 memory = MemorySaver()
 history = []
@@ -35,10 +29,10 @@ async def main():
                 "args": ["mathserver.py"],
                 "transport": "stdio",
             },
-            "weather": {
-                "url": "http://localhost:8000/mcp",
-                "transport": "streamable_http",
-            },
+             "weather": {
+                 "url": "http://localhost:8000/mcp",
+                 "transport": "streamable_http",
+             },
             "Translate": {
                 "command": "python",
                 "args": ["translate.py"],
@@ -64,70 +58,109 @@ async def main():
 
     # CREATING LLM MODEL
     tools = await clients.get_tools()
-    model = ChatGroq(model="llama3-70b-8192")
+    print(f"\nLoaded {len(tools)} tools: {[tool.name for tool in tools]}\n")
     
-    agent = create_react_agent(model, tools )
+    model = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.7)
+    
+    # System prompt to guide tool usage
+    system_message_content = """You are a helpful AI assistant with access to multiple tools.
+
+Available tools:
+- solve_math: For mathematical calculations, equations, and problem solving
+- translate: For translating text between languages
+- search_web, find_relevant_urls, scrape_pdfs, search_and_download_pdfs: For web searching and PDF operations
+- read_emails, send_email: For Gmail operations
+
+When a user asks a question:
+1. Analyze what tools you need to use
+2. Call the appropriate tool(s) with correct parameters
+3. Use the tool results to provide a comprehensive answer
+4. Always explain your reasoning and what tools you used
+
+Be proactive in using tools to give accurate, up-to-date information."""
+    
+    # Create agent with memory (system prompt will be added to messages)
+    agent = create_react_agent(model, tools, checkpointer=memory)
     
     
     try:
-        # for faiss
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         index_path = "faiss_index"
-        if os.path.exists(index_path):
-           faiss_index = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
-           print("Loaded existing FAISS index.")
+        index_file = os.path.join(index_path, "index.faiss")
+        
+        # Check if the actual index file exists, not just the directory
+        if os.path.exists(index_file):
+            faiss_index = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
+            print("Loaded existing FAISS index.")
         else:
-            # if os path of fasiss is not present then create a new one
-         faiss_index = FAISS.from_texts(["initial text"], embeddings)
-         print("Created new FAISS index.")
+            faiss_index = FAISS.from_texts(["initial text"], embeddings)
+            faiss_index.save_local(index_path)
+            print("Created new FAISS index.")
 
-
-        chat_template = ChatPromptTemplate.from_messages([
-           ("system" , "You are a helpful assistant. Always base your answer on the given search results. If the answer is not in the results, say: 'I couldn't find reliable info.'"),
-            ("user" , "{user_input}")
-            ])
+        # Session configuration for conversation threading
+        config = {"configurable": {"thread_id": "main_conversation"}}
+        
+        # Initialize conversation with system message ONCE
+        system_msg = SystemMessage(content=system_message_content)
+        await agent.ainvoke({"messages": [system_msg]}, config=config)
+        
         while True:
             user_input = input("\nYou: ")
-            #search_tool = next(t for t in tools if t.name == "websearch")
             
-            #search_results = await search_tool.invoke({"query": user_input})
-            #context_from_web = "\n".join(
-            #[f"- {r.get('snippet','')} ({r.get('url','')})" for r in search_results.get("results", [])])   
-
-            faiss_index.add_texts([user_input], metadatas=[{"source": "user", "timestamp": str(datetime.now())}])
-            if user_input.lower() in ["exit", "quit","q"]:
+            if user_input.lower() in ["exit", "quit", "q"]:
                 faiss_index.save_local(index_path)
-                print("Fasiss index saved")
-                print("Ending conversation...")
+                print("FAISS index saved.")
                 break
+            
             if user_input.lower() == "clear":
-                # Conversation history is cleared by craeting a new faiss vector dataabase
                 faiss_index = FAISS.from_texts(["initial text"], embeddings)
                 faiss_index.save_local(index_path)
+                history.clear()
+                # Start new thread and reinitialize with system message
+                config = {"configurable": {"thread_id": f"conversation_{datetime.now().timestamp()}"}}
+                await agent.ainvoke({"messages": [system_msg]}, config=config)
                 print("Conversation history cleared.")
                 continue
 
-            print("\nAssistant: ", end="", flush=True)
-            #Format and invoke directly
-            results = faiss_index.similarity_search(user_input, k=3)
-            #RELEVANCE_THRESHOLD = 0.78  # tune this experimentally
-            similar_docs = results
-            context_from_faiss = "\n".join([doc.page_content for doc in similar_docs])
-            #Web Search Results: {context_from_web}
-            context = f"""
-            Conversation Context: {context_from_faiss}
-            """
-            formatted_prompt = chat_template.format_messages(user_input=user_input + "\nContext from past" + context)
-            Ai_response = await agent.ainvoke(
-                {"messages": [{"role": "user", "content": user_input}]}
-            )
-            response = await model.ainvoke(formatted_prompt)
-            faiss_index.add_texts([response.content], metadatas=[{"source": "assistant", "timestamp": str(datetime.now())}])
-            faiss_index.save_local(index_path)
-            print(response.content)
-
+            # Store user input in FAISS
+            faiss_index.add_texts([user_input], metadatas=[{"source": "user", "timestamp": str(datetime.now())}])
             
-            #print("Ai_response:", Ai_response['messages'][-1].content)
+            # Retrieve relevant context from FAISS (last 3 interactions)
+            try:
+                relevant_context = faiss_index.similarity_search(user_input, k=3)
+                context_text = "\n".join([doc.page_content for doc in relevant_context if doc.page_content != "initial text"])
+            except:
+                context_text = ""
+            
+            print("\nAssistant: ", end="", flush=True)
+            
+            try:
+                # Build message with context
+                full_input = user_input
+                if context_text and len(history) > 0:
+                    full_input = f"Recent conversation context:\n{context_text}\n\nCurrent question: {user_input}"
+                
+                # Invoke agent - checkpointer handles full conversation history
+                response = await agent.ainvoke(
+                    {"messages": [HumanMessage(content=full_input)]},
+                    config=config
+                )
+                
+                # Extract the final message
+                assistant_message = response["messages"][-1].content
+                
+                # Store in history and FAISS
+                history.append({"user": user_input, "assistant": assistant_message})
+                faiss_index.add_texts([assistant_message], metadatas=[{"source": "assistant", "timestamp": str(datetime.now())}])
+                faiss_index.save_local(index_path)
+                
+                print(assistant_message)
+                
+            except Exception as e:
+                print(f"\nError during agent call: {e}")
+                traceback.print_exc()
+                print("\nPlease try rephrasing your question or check if all MCP servers are running.")
+
             
     except Exception as e:
         print(f"An error occurred: {e}")
