@@ -39,8 +39,9 @@ async def main():
             "transport": "stdio",
         },
         "weather": {
-            "url": "http://localhost:8000/mcp",
-            "transport": "streamable_http",
+            "command": "python",
+            "args": ["weather.py"],
+            "transport": "stdio",
         },
         "Translate": {
             "command": "python",

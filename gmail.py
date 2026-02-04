@@ -8,7 +8,7 @@ from googleapiclient.discovery import build
 from mcp.server.fastmcp import FastMCP
 
 
-mcp = FastMCP("math_server")
+mcp = FastMCP("gmail")
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
@@ -131,8 +131,7 @@ def send_email(recipient: str, subject: str, body: str) -> str:
     message_body = {"raw": raw_message}
 
     sent_message = service.users().messages().send(userId="me", body=message_body).execute()
-    print(f'Message Id: {sent_message["id"]} sent to {recipient}')
-
+    
     return f"Email sent to {recipient} with Message ID: {sent_message['id']}"
 
 # if __name__ == "__main__":
@@ -145,4 +144,7 @@ def send_email(recipient: str, subject: str, body: str) -> str:
 #             print(f"From: {email['from']}, Subject: {email['subject']}, Date: {email['date']}")
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    # today_email()
+    # for email in today_email():
+    #     print(f"From: {email['from']}, Subject: {email['subject']}, Date: {email['date']}")
+     mcp.run(transport="stdio")

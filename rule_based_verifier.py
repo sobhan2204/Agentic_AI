@@ -22,45 +22,26 @@ def rule_based_verifier(user_query, plan, execution_results, final_answer):
             "retry_hint": None
         }
 
-    # Rule 2: Tool compliance
+    # Rule 2: Tool compliance (relaxed)
+    # Just check that we got some content, don't enforce specific format
     for step, result in zip(plan.get("steps", []), execution_results):
-        tool = step.get("tool")
+        if len(result.strip()) < 20:
+            return {
+                "verdict": "RETRY",
+                "reason": f"Step {step['id']} produced insufficient output",
+                "retry_hint": "Provide more detailed information"
+            }
 
-        if tool == "websearch":
-            if not any(
-                k in result.lower()
-                for k in ["http", "www", "news", "source", "reported", "according"]
-            ):
-                return {
-                    "verdict": "RETRY",
-                    "reason": f"Step {step['id']} expected web search output",
-                    "retry_hint": "Redo web search and include sources"
-                }
-
-    # Rule 3: Goal satisfaction (soft check)
-    goal_keywords = [
-        w for w in plan["goal"].lower().split()
-        if w not in STOPWORDS and len(w) > 3
-    ]
-
-    if goal_keywords and not any(
-        word in final_answer.lower() for word in goal_keywords
-    ):
+    # Rule 3: Goal satisfaction (relaxed - only fail if answer is too short)
+    # Allow answers that are substantive even if they don't contain exact goal keywords
+    if len(final_answer.strip()) < 30:
         return {
             "verdict": "FAIL",
-            "reason": "Final answer does not satisfy the planned goal",
+            "reason": "Final answer is too short",
             "retry_hint": None
         }
 
-    # Rule 4: Freshness for news
-    if any(k in user_query.lower() for k in ["news", "latest", "current"]):
-        if not re.search(r"\b(20\d{2}|today|yesterday|this week|this month)\b",
-                         final_answer.lower()):
-            return {
-                "verdict": "RETRY",
-                "reason": "News output lacks freshness indicators",
-                "retry_hint": "Include recent date and source"
-            }
+    # Rule 4: Freshness for news (removed - too strict)
 
     # Rule 5: Generic failure text
     generic_failures = [

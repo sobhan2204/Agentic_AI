@@ -1,30 +1,35 @@
 from mcp.server.fastmcp import FastMCP
+from googletrans import Translator
+import asyncio
 
 mcp = FastMCP("Translate")
+translator = Translator()
 
-from lara_sdk import Translator, Credentials
-
-LARA_ACCESS_KEY_ID = "BU2BEJ6MOKP4E4UM2U7AMGTFUP"      # Replace with your Access Key ID
-LARA_ACCESS_KEY_SECRET = "Cq93F6yV-fmyObtlcMu5BELjYfXWHvsnh5AEDKcdR-0"  # Replace with your Access Key SECRET
 
 @mcp.tool()
-def translate(sentence : str , target : str) -> str | list[str] | list:
-    '''summary_
-    convert the sentence to the target language
+async def translate(sentence: str, target: str) -> dict:
+    """
+    Translate text to target language.
+
     Args:
-      sentence : write any sentence in english 
-      target : language you want to convert to (it-IT, fr-FR, de-DE, es-ES, etc.)
-    '''
-    credentials = Credentials(access_key_id=LARA_ACCESS_KEY_ID, access_key_secret=LARA_ACCESS_KEY_SECRET)
-    lara = Translator(credentials)
+        sentence: Text to translate
+        target: Target language code (e.g., 'es', 'fr', 'de')
 
-    # This translates your text from English ("en-US") to Italian ("it-IT").
-    res = lara.translate(sentence,
-                         source="en-US",
-                         target=target)
+    Returns:
+        dict with translated text or error
+    """
 
-    # Returns the translated text
-    return res.translation
+    try:
+        result = await asyncio.to_thread(
+            translator.translate,
+            sentence,
+            dest=target
+        )
+        return {"translated_text": result.text}
 
-if __name__ == '__main__':
+    except Exception as e:
+        return {"error": f"Translation failed: {str(e)}"}
+
+
+if __name__ == "__main__":
     mcp.run(transport="stdio")

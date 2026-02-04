@@ -11,6 +11,7 @@ import os
 import sys
 from datetime import datetime
 from langchain_community.vectorstores import FAISS
+from itertools import cycle
 
 
 # Import your MCP client code
@@ -64,14 +65,15 @@ async def initialize_mcp():
         # Same MCP clients as your client.py
         clients = MultiServerMCPClient(
             {
-                "math": {
+                "math_server": {
                     "command": "python",
                     "args": ["mathserver.py"],
                     "transport": "stdio",
                 },
                 "weather": {
-                    "url": "http://localhost:8000/mcp",
-                    "transport": "streamable_http",
+                    "command": "python",
+                    "args": ["weather.py"],
+                    "transport": "stdio",
                 },
                 "Translate": {
                     "command": "python",
@@ -88,27 +90,52 @@ async def initialize_mcp():
                     "args": ["gmail.py"],
                     "transport": "stdio",
                 },
+                "debug_tool": {
+                    "command": "python",
+                    "args": ["debug_tool.py"],
+                    "transport": "stdio",
+                },
             }
         )
         
-        groq_api_key = os.getenv("GROQ_API_KEY")
-        if not groq_api_key:
-            raise ValueError("GROQ_API_KEY not found in .env")
+        # Load all API keys for rotation (matching client.py)
+        api_keys = [
+            os.getenv("GROQ_API_KEY_1"),
+            os.getenv("GROQ_API_KEY_2"),
+            os.getenv("GROQ_API_KEY_3")
+        ]
         
-        # Initialize model and agent
+        # Filter out None values
+        api_keys = [key for key in api_keys if key]
+        
+        if not api_keys:
+            raise ValueError("No GROQ_API_KEY_1, GROQ_API_KEY_2, or GROQ_API_KEY_3 found in .env")
+        
+        print(f"Loaded {len(api_keys)} API keys for rotation")
+        key_cycle = cycle(api_keys)
+        
+        # Initialize model and agent (matching client.py settings)
         tools = await clients.get_tools()
-        model = ChatGroq(model="llama3-70b-8192")
+        model = ChatGroq(
+            model="llama-3.1-8b-instant",
+            max_tokens=1500,
+            temperature=0.7,
+            api_key=next(key_cycle)
+        )
         agent = create_react_agent(model, tools)
         
         # Initialize FAISS
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         index_path = "faiss_index"
+        index_file = os.path.join(index_path, "index.faiss")
         
-        if os.path.exists(index_path):
+        # Check if the actual index file exists, not just the directory
+        if os.path.exists(index_file):
             faiss_index = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
             print("Loaded existing FAISS index.")
         else:
             faiss_index = FAISS.from_texts(["initial text"], embeddings)
+            faiss_index.save_local(index_path)
             print("Created new FAISS index.")
         
         # Chat template from your client.py
