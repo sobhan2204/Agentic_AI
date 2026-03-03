@@ -1,34 +1,35 @@
 from mcp.server.fastmcp import FastMCP
-from googletrans import Translator
 import asyncio
 
 mcp = FastMCP("Translate")
-translator = Translator()
-
 
 @mcp.tool()
-async def translate(sentence: str, target: str) -> dict:
+async def translate(sentence: str, target_language: str) -> str:
     """
-    Translate text to target language.
+    Translate text to a target language.
 
     Args:
-        sentence: Text to translate
-        target: Target language code (e.g., 'es', 'fr', 'de')
+        sentence: The text to translate (e.g., "hello", "good morning")
+        target_language: The language to translate into (e.g., "french", "es", "german", "ja")
 
     Returns:
-        dict with translated text or error
+        str: The translated text
     """
-
     try:
+        # Import inside the function to avoid any startup-time failures
+        from deep_translator import GoogleTranslator
+
+        target = target_language.strip().lower()
+
         result = await asyncio.to_thread(
-            translator.translate,
-            sentence,
-            dest=target
+            GoogleTranslator(source="auto", target=target).translate,
+            sentence.strip()
         )
-        return {"translated_text": result.text}
+
+        return result if result else "Translation returned empty result"
 
     except Exception as e:
-        return {"error": f"Translation failed: {str(e)}"}
+        return f"Translation failed: {str(e)}"
 
 
 if __name__ == "__main__":

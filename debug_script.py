@@ -94,10 +94,10 @@ async def main():
             print(f"   {name}: {info['tool_count']} tools")
         print(f"\nTotal tools available: {total_tools}")
     else:
-        print("❌ No servers are working!")
+        print("No servers are working!")
     
     if failed_servers:
-        print(f"\n❌ Failed servers ({len(failed_servers)}):")
+        print(f"\n Failed servers ({len(failed_servers)}):")
         for name, reason in failed_servers.items():
             print(f"   {name}: {reason}")
     

@@ -37,20 +37,20 @@ for server in servers:
             time.sleep(1)
             
             if proc.poll() is None:
-                print("✅ WORKING")
+                print(" WORKING")
                 proc.terminate()
             else:
                 stderr = proc.stderr.read()
-                print(f"❌ CRASHED after initialize")
+                print(f" CRASHED after initialize")
                 print(f"   Error: {stderr[:200]}")
         else:
             # Crashed immediately
             stderr = proc.stderr.read()
-            print(f"❌ CRASHED immediately")
+            print(f" CRASHED immediately")
             print(f"   Error: {stderr[:200]}")
             
     except Exception as e:
-        print(f"❌ ERROR: {e}")
+        print(f"EROR: {e}")
     
     print()
 

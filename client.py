@@ -1,5 +1,8 @@
+import sys
+sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', buffering=1)
+sys.stderr = open(sys.stderr.fileno(), mode='w', encoding='utf-8', buffering=1)
+
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.prebuilt import create_react_agent
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 import asyncio
@@ -8,430 +11,323 @@ from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from datetime import datetime
 import traceback
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, trim_messages
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 import json
-from rule_based_verifier import rule_based_verifier
-from executioner import execute_plan
 from itertools import cycle
 
+load_dotenv()
 
-MAX_RETRIES = 2
-SUMMARIZE_AFTER = 10  # Summarize conversation after every 10 exchanges
+# ── CONFIG ─────────────────────────────────────────────────────────────────────
+SUMMARIZE_AFTER = 6
+MAX_REACT_STEPS = 6     # max tool calls per turn (Think→Act→Observe loops)
+TOOL_TIMEOUT    = 60
 
-memory = MemorySaver()
-history = []
+# ── MEMORY ─────────────────────────────────────────────────────────────────────
+chat_history         = []
 conversation_summary = ""
 
-def normalize_plan(raw):
-    if isinstance(raw, dict):
-        return raw
+# ── SYSTEM PROMPT ──────────────────────────────────────────────────────────────
+# This is the ONLY place that tells the LLM how to behave.
+# No hardcoded routing — the LLM sees tool schemas via bind_tools() and decides.
 
-    # If string, clean and parse
-    if isinstance(raw, str):
-        raw = raw.strip()
+SYSTEM_PROMPT = (
+    "You are Sobhan_AI, a helpful, warm, and intelligent personal assistant.\n\n"
+    
+    "You have access to tools. The tool schemas tell you what each tool does and "
+    "what arguments it needs. Read them carefully before calling.\n\n"
+    "RULES:\n"
+    "1. For greetings or small talk: reply directly. Do NOT call any tools.\n"
+    "2. For tasks needing real data (weather, math, translation, search, email): "
+    "call the appropriate tool. NEVER make up facts.\n"
+    "3. After getting a tool result: explain it naturally in 2-4 sentences.\n"
+    "4. For MULTI-STEP tasks (e.g. 'translate hello to French and email it to bob@test.com'):\n"
+    "   - Call the first tool (translate)\n"
+    "   - Read the result\n"
+    "   - Use that result as input for the next tool (email body = translation result)\n"
+    "   - The tool-calling loop handles this automatically — just call tools in sequence.\n"
+    "5. NEVER call the same tool with the same arguments twice.\n"
+    "6. Be concise but warm. Feel like a real assistant.\n"
+    "7. Remember context from earlier in the conversation."
+)
 
-        # Remove surrounding quotes if present
-        if raw.startswith('"') and raw.endswith('"'):
-            raw = raw[1:-1]
-            raw = raw.replace('\\"', '"') # this function will remove any "\\" and change it into blank space 
 
-        # Remove markdown fences if any
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
+# ── HELPERS ────────────────────────────────────────────────────────────────────
 
-        return json.loads(raw)
+async def safe_invoke(model, messages, retries=3, delay=5):
+    for attempt in range(retries):
+        try:
+            return await model.ainvoke(messages)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            err = str(e).lower()
+            if "rate limit" in err or "429" in err or "503" in err:
+                wait = delay * (attempt + 1)
+                print(f"\n[Rate limited, retrying in {wait}s...]")
+                await asyncio.sleep(wait)
+            else:
+                raise
+    raise RuntimeError(f"Model failed after {retries} retries")
 
-    raise TypeError(f"Unsupported plan type: {type(raw)}")
+
 async def summarize_conversation(model, history, previous_summary=""):
-    """Summarize conversation history to reduce memory usage."""
     if not history:
         return previous_summary
-    
-    # Format conversation for summarization
     conversation_text = "\n".join([
-        f"User: {entry['user']}\nAssistant: {entry['assistant']}"
-        for entry in history
+        f"{'User' if r == 'user' else 'Assistant'}: {c}" for r, c in history
     ])
-    
-    SUMMARY_PROMPT = f"""Summarize the following conversation concisely, preserving key information like names, preferences, and important context.
-
-Previous summary: {previous_summary if previous_summary else 'None'}
-
-Recent conversation:
-{conversation_text}
-
-Provide a brief summary (2-3 sentences) that captures the essential information:"""
-    
-    messages = [
-        SystemMessage(content="You are a conversation summarizer. Create concise summaries that preserve important context."),
-        HumanMessage(content=SUMMARY_PROMPT)
-    ]
-    
-    response = await model.ainvoke(messages)
+    response = await safe_invoke(model, [
+        SystemMessage(content="You are a conversation summarizer."),
+        HumanMessage(content=(
+            f"Previous summary: {previous_summary or 'None'}\n\n"
+            f"Recent conversation:\n{conversation_text}\n\n"
+            f"Write a 2-3 sentence summary preserving names, preferences, and key context:"
+        ))
+    ])
     return response.content.strip()
 
-async def is_conversational_query(model, user_input):
-    
-    CLASSIFIER_PROMPT = """You are an intent classifier. Determine if the user's input is:
-- CONVERSATIONAL: Greetings, chitchat, personal questions, follow-ups, clarifications, memory queries
-- TASK: Requires tools like math, weather, translation, search, email
-Your role is to classify the input into one of these two categories based on intent.
 
-Respond with ONLY one word: "CONVERSATIONAL" or "TASK"
-
-Examples:
-Input: "Hi, how are you?" → CONVERSATIONAL
-Input: "What's my name?" → CONVERSATIONAL
-Input: "Tell me more about that" → CONVERSATIONAL
-Input: "Calculate 5+5" → TASK
-Input: "What's the weather in Delhi?" → TASK
-Input: "Send an email to John" → TASK
-"""
-    
-    messages = [
-        SystemMessage(content=CLASSIFIER_PROMPT),
-        HumanMessage(content=f"Input: {user_input}")
-    ]
-    
-    response = await model.ainvoke(messages)
-    classification = response.content.strip().upper()
-    
-    return classification == "CONVERSATIONAL"
+def build_messages(summary, history, user_input):
+    """Build message list with system prompt, conversation context, and user input."""
+    messages = [SystemMessage(content=SYSTEM_PROMPT)]
+    if summary:
+        messages.append(SystemMessage(content=f"Summary of earlier conversation:\n{summary}"))
+    for role, content in history[-6:]:
+        messages.append(
+            HumanMessage(content=content) if role == "user"
+            else AIMessage(content=content)
+        )
+    messages.append(HumanMessage(content=user_input))
+    return messages
 
 
-async def plan_task(model , user_input):
-    
-    PLANNER_PROMPT = """
-You are a TASK PLANNER for an Agentic AI system.
+def truncate(text: str, max_chars: int = 800) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "... [truncated]"
 
-Your job:
-- Understand the user's goal
-- Break it into ordered steps
-- Decide which tool (if any) is required per step
 
-Rules:
-- DO NOT execute tools
-- DO NOT answer the user
-- OUTPUT ONLY RAW JSON
-- NO markdown
-- NO backticks
+# ── CORE: ReAct LOOP (LLM decides everything) ─────────────────────────────────
 
-Available tools:
-- math_server
-- weather
-- Translate
-- websearch
-- gmail
+async def react_turn(
+    llm_with_tools,
+    tools_by_name: dict,
+    summary: str,
+    history: list,
+    user_input: str,
+) -> str:
+    """
+    One conversation turn using LangChain's native tool-calling = ReAct.
 
-JSON SCHEMA:
-{
-  "goal": "...",
-  "intent": "...",
-  "steps": [
-    {
-      "id": 1,
-      "action": "...",
-      "tool": "tool_name or none",
-      "description": "..."
-    }
-  ],
-  "requires_confirmation": true or false
-}
-"""
-    messages = [
-        SystemMessage(content=PLANNER_PROMPT),
-        HumanMessage(content=user_input)
-    ]
-    response = await model.ainvoke(messages)
-    try:
-        plan = response.content
-        return normalize_plan(plan)
-    except json.JSONDecodeError:
-        print("Failed to get plan response as JSON.")
-    
+    The LLM:
+      1. THINKS — decides if a tool is needed (or just replies)
+      2. ACTS — calls a tool with arguments it chooses
+      3. OBSERVES — sees the tool result via ToolMessage
+      4. REPEATS — decides if more tools are needed
+      5. ANSWERS — gives final text reply when done
+
+    No hardcoded routing. No intent classification. The LLM sees tool schemas
+    from bind_tools() and makes all decisions itself.
+    """
+    messages = build_messages(summary, history, user_input)
+
+    # Track previous tool calls to detect stuck loops
+    last_call_sig = None
+
+    for step in range(MAX_REACT_STEPS):
+        response = await safe_invoke(llm_with_tools, messages)
+
+        # ── No tool calls → LLM is done, return its reply ─────────────
+        if not response.tool_calls:
+            return response.content.strip() if response.content else "I couldn't process that. Please try again."
+
+        # ── Duplicate call guard ───────────────────────────────────────
+        current_sig = [
+            (tc["name"], json.dumps(tc["args"], sort_keys=True))
+            for tc in response.tool_calls
+        ]
+        if current_sig == last_call_sig:
+            # LLM is stuck calling the same thing — force it to answer
+            messages.append(response)
+            for tc in response.tool_calls:
+                messages.append(ToolMessage(
+                    content="This tool was already called with these arguments. Please give your final answer now.",
+                    tool_call_id=tc["id"],
+                ))
+            final = await safe_invoke(llm_with_tools, messages)
+            return final.content.strip() if final.content else "Something went wrong."
+        last_call_sig = current_sig
+
+        # ── Execute tool calls ─────────────────────────────────────────
+        messages.append(response)
+
+        for tool_call in response.tool_calls:
+            tool_name = tool_call["name"]
+            tool_args = tool_call["args"]
+            tool_id   = tool_call["id"]
+
+            print(f"  [Tool: {tool_name}({json.dumps(tool_args)[:120]})]")
+
+            tool = tools_by_name.get(tool_name)
+            if tool is None:
+                result = f"Tool '{tool_name}' not found. Available tools: {', '.join(tools_by_name.keys())}"
+            else:
+                try:
+                    raw = await asyncio.wait_for(
+                        tool.ainvoke(tool_args),
+                        timeout=TOOL_TIMEOUT,
+                    )
+                    result = truncate(str(raw))
+                except asyncio.TimeoutError:
+                    result = f"Tool '{tool_name}' timed out after {TOOL_TIMEOUT}s."
+                except Exception as e:
+                    result = f"Tool '{tool_name}' error: {str(e)[:200]}"
+
+            # Feed observation back → LLM sees it on next loop iteration
+            messages.append(ToolMessage(content=result, tool_call_id=tool_id))
+
+    # ── Hit max steps → ask LLM to wrap up ─────────────────────────────
+    messages.append(HumanMessage(
+        content="You've used all available tool calls. Give your best answer based on what you have."
+    ))
+    final = await safe_invoke(llm_with_tools, messages)
+    return final.content.strip() if final.content else "Max steps reached."
+
+
+# ── MAIN ───────────────────────────────────────────────────────────────────────
+
 async def main():
-    """Run a chat using MCPAgent's built-in conversation memory."""
+    global chat_history, conversation_summary
 
-    load_dotenv()  
+    print("Hii I am your personalized AI chatbot here to help you......")
 
-    print("Hii I am your personalized AI chatbot...")
-
-    clients = MultiServerMCPClient(
-        {
-            "math_server": {
-                "command": "python",
-                "args": ["-u" , "mathserver.py"],
-                "transport": "stdio",
-            },
-             "weather": {
-                 "command": "python",
-                 "args": ["-u" , "weather.py"],
-                 "transport": "stdio",
-             },
-            "Translate": {
-                "command": "python",
-                "args": ["-u" , "translate.py"],
-                "transport": "stdio",
-            },
-            "websearch": {
-                "command": "python",
-                "args": ["-u" , "websearch.py"],
-                "transport": "stdio",
-            },
-            "gmail": {
-                "command": "python",
-                "args": ["-u" , "gmail.py"],
-                "transport": "stdio",
-            }
-        }
-    )
-
-    # Load all API keys for rotation
-    api_keys = [
-        os.getenv("GROQ_API_KEY_1"),
-        os.getenv("GROQ_API_KEY_2"),
-        os.getenv("GROQ_API_KEY_3")
-    ]
-    
-    # Filter out None values (in case some keys are missing)
-    api_keys = [key for key in api_keys if key]
-    
+    api_keys = [os.getenv(f"GROQ_API_KEY_{i}") for i in range(1, 4)]
+    api_keys = [k for k in api_keys if k]
     if not api_keys:
-        raise ValueError("No GROQ_API_KEY_1, GROQ_API_KEY_2, or GROQ_API_KEY_3 found in .env")
-    
-    print(f"Loaded {len(api_keys)} API keys for rotation\n")
-    
-    # Create cycle iterator for key rotation
+        raise ValueError("No GROQ API keys found in .env")
+
     key_cycle = cycle(api_keys)
 
-    # CREATING LLM MODEL
-    tools = await clients.get_tools()
-    print(f"\nLoaded {len(tools)} tools: {[tool.name for tool in tools]}\n")
-    
-    planner_model = ChatGroq(
-    model="llama-3.1-8b-instant",
-    max_tokens=1500,  # Reduced to leave room for input
-    temperature=0,
-    api_key=next(key_cycle)
+    chat_model = ChatGroq(
+        model="llama-3.1-8b-instant",
+        max_tokens=800,
+        temperature=0.7,
+        api_key=next(key_cycle),
     )
 
-    executor_model = ChatGroq(
-    model="llama-3.1-8b-instant",
-    max_tokens=1500,  # Reduced to leave room for input
-    temperature=0.7,
-    api_key=next(key_cycle)
+    agent_llm = ChatGroq(
+        model="llama-3.1-8b-instant",
+        max_tokens=1024,
+        temperature=0.0,
+        api_key=next(key_cycle),
     )
 
-    # System prompt to guide tool usage
-    system_message_content = """You are a helpful coversational AI assistant with access to multiple tools.
+    # ── FAISS semantic memory ──────────────────────────────────────────────
+    embeddings  = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    index_path  = "faiss_index"
+    index_file  = os.path.join(index_path, "index.faiss")
+    faiss_index = None
 
-    Available tools:
-   - solve_math: For mathematical calculations, equations, and problem solving
-- translate: For translating text between languages (ONLY when explicitly asked to translate)
-- search_web, find_relevant_urls, scrape_pdfs, search_and_download_pdfs: For web searching and PDF operations
-- read_emails, send_email: For Gmail operations
-- get_current_weather, get_air_quality, get_geo_details, get_environment_report: For weather and location information
-
-CRITICAL RULES:
-1. NEVER use tools for greetings (hi, hello, how are you, etc.)
-2. NEVER use tools for casual conversation
-3. NEVER use translate tool unless user explicitly asks to translate something
-4. ONLY use tools when the user's request CLEARLY requires external data or computation
-
-For conversational inputs:
-- Greetings: "hi", "hello", "how are you" → Respond directly, NO TOOLS
-- Personal questions: "what's my name", "who am I" → Use memory, NO TOOLS  
-- Clarifications: "tell me more", "explain that" → Use context, NO TOOLS
-
-For tool-requiring inputs:
-- Math: "calculate 5+5" → Use solve_math
-- Weather: "what's the weather in Delhi" → Use weather tools
-- Translation: "translate 'hello' to Spanish" → Use translate
-- Search: "search for..." → Use websearch
-- Email: "send an email to..." → Use gmail
-
-Respond naturally and conversationally. Be helpful but don't overuse tools."""
-    
-    # Message trimming strategy to prevent token overflow
-    # Keep only system message + last 6 messages (3 exchanges)
-    def trim_message_history(messages):
-        """Trim messages to prevent token overflow, always keeping system message."""
-        if len(messages) <= 7:  # System + 6 messages
-            return messages
-        
-        # Always keep the first message (system prompt)
-        system_msg = messages[0] if messages and isinstance(messages[0], SystemMessage) else None
-        
-        # Keep only last 6 messages for conversation
-        recent_messages = messages[-6:]
-        
-        if system_msg:
-            return [system_msg] + recent_messages
-        return recent_messages
-    
-    # Create agent with memory and message trimming
-    agent = create_react_agent(
-        executor_model, 
-        tools, 
-        checkpointer=memory,
-        state_modifier=trim_message_history  # Automatically trim on each call
-    )
-    
-    
-    try:
-        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        index_path = "faiss_index"
-        index_file = os.path.join(index_path, "index.faiss")
-        
-        # Check if the actual index file exists, not just the directory
-        if os.path.exists(index_file):
-            faiss_index = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
+    if os.path.exists(index_file):
+        try:
+            faiss_index = FAISS.load_local(
+                index_path, embeddings, allow_dangerous_deserialization=True
+            )
             print("Loaded existing FAISS index.")
-        else:
-            faiss_index = FAISS.from_texts(["initial text"], embeddings)
-            faiss_index.save_local(index_path)
-            print("Created new FAISS index.")
+        except Exception as e:
+            print(f"FAISS index corrupted ({e}), recreating...")
 
-        # Session configuration for conversation threading
-        config = {"configurable": {"thread_id": "main_conversation"}}
-        
-        # Initialize conversation with system message ONCE
-        system_msg = SystemMessage(content=system_message_content)
-        await agent.ainvoke({"messages": [system_msg]}, config=config)
-        
+    if faiss_index is None:
+        faiss_index = FAISS.from_texts(["initial text"], embeddings)
+        faiss_index.save_local(index_path)
+        print("Created new FAISS index.")
+
+    # ── MCP: connect to tool servers ───────────────────────────────────────
+    client = MultiServerMCPClient({
+        "math_server": {"command": "python", "args": ["-u", "mathserver.py"], "transport": "stdio"},
+        "weather":     {"command": "python", "args": ["-u", "weather.py"],    "transport": "stdio"},
+        "Translate":   {"command": "python", "args": ["-u", "translate.py"],  "transport": "stdio"},
+        "websearch":   {"command": "python", "args": ["-u", "websearch.py"],  "transport": "stdio"},
+        "gmail":       {"command": "python", "args": ["-u", "gmail.py"],      "transport": "stdio"},
+    })
+
+    tools         = await client.get_tools()
+    tools_by_name = {tool.name: tool for tool in tools}
+    llm_with_tools = agent_llm.bind_tools(tools)
+
+    print(f"Loaded tools: {list(tools_by_name.keys())}")
+
+    # ── CONVERSATION LOOP ──────────────────────────────────────────────────
+    try:
         while True:
-            user_input = input("\nYou: ")
-            
+            user_input = input("\nYou: ").strip()
+
+            if not user_input:
+                continue
+
             if user_input.lower() in ["exit", "quit", "q"]:
-                faiss_index.save_local(index_path)
-                print("bye bye ! FAISS index have been saved.")
+                print("Bye bye!")
                 break
-            
+
             if user_input.lower() == "clear":
                 faiss_index = FAISS.from_texts(["initial text"], embeddings)
                 faiss_index.save_local(index_path)
-                history.clear()
-                conversation_summary = ""  # Reset summary
-                # Start new thread and reinitialize with system message
-                config = {"configurable": {"thread_id": f"conversation_{datetime.now().timestamp()}"}}
-                await agent.ainvoke({"messages": [system_msg]}, config=config)
-                print("Conversation history cleared.")
+                chat_history.clear()
+                conversation_summary = ""
+                print("Conversation cleared.")
                 continue
 
-            # Store user input in FAISS
-            faiss_index.add_texts([user_input], metadatas=[{"source": "user", "timestamp": str(datetime.now())}])
-            
-            # Retrieve relevant context from FAISS (last 3 interactions) -> we can add morecontext but it wolud take a lot of time 
-            try:
-                relevant_context = faiss_index.similarity_search(user_input, k=3)
-                context_text = "\n".join([doc.page_content for doc in relevant_context if doc.page_content != "initial text"])
-            except:
-                context_text = ""
-            
             print("\nAssistant: ", end="", flush=True)
-            
+
             try:
-                is_conversational = await is_conversational_query(planner_model, user_input)
-                print(f"[DEBUG] Query classified as: {'CONVERSATIONAL' if is_conversational else 'TASK'}")
-                
-                if is_conversational:
-                    # Build context with summary and recent messages
-                    full_context = ""
-                    if conversation_summary:
-                        full_context += f"Conversation summary: {conversation_summary}\n\n"
-                    if context_text:
-                        full_context += f"Recent context:\n{context_text}\n\n"
-                    
-                    message_with_context = f"{full_context}Current query: {user_input}" if full_context else user_input
-                    # Direct response without planning
-                    response = await agent.ainvoke(
-                        {"messages": [HumanMessage(content=message_with_context)]},
-                        config=config
-                    )
-                    assistant_message = response["messages"][-1].content
-                    print(assistant_message)
-                    
-                    # Store in history and FAISS
-                    history.append({"user": user_input, "assistant": assistant_message})
-                    faiss_index.add_texts([assistant_message], metadatas=[{"source": "assistant", "timestamp": str(datetime.now())}])
-                    faiss_index.save_local(index_path)
-                    
-                    # Summarize and clear old history if threshold reached
-                    #global summarize_conversation
-                    if len(history) >= SUMMARIZE_AFTER:
-                        print("\n[Summarizing conversation to reduce memory...]")
-                        conversation_summary = await summarize_conversation(planner_model, history, conversation_summary)
-                        history.clear()  # Clear old messages after summarization
-                    
-                    continue
-                
-                # Complex query: Use full pipeline
-                plan = await plan_task(planner_model, user_input)
-                assert isinstance(plan, dict), f"Plan is not dict: {type(plan)}"
-                
-                retry_count = 0
-                execution_hint = None
+                reply = await react_turn(
+                    llm_with_tools = llm_with_tools,
+                    tools_by_name  = tools_by_name,
+                    summary        = conversation_summary,
+                    history        = chat_history,
+                    user_input     = user_input,
+                )
 
-                while retry_count <= MAX_RETRIES:
-                    execution_results, final_answer = await execute_plan(
-                        agent,
-                        plan,
-                        execution_hint
+                print(f"\033[92m{reply}\033[0m")
+
+                chat_history.append(("user", user_input))
+                chat_history.append(("assistant", reply))
+
+                faiss_index.add_texts(
+                    [f"User: {user_input}", f"Assistant: {reply}"],
+                    metadatas=[
+                        {"source": "user",      "timestamp": str(datetime.now())},
+                        {"source": "assistant", "timestamp": str(datetime.now())},
+                    ],
+                )
+                faiss_index.save_local(index_path)
+
+                if len(chat_history) >= SUMMARIZE_AFTER * 2:
+                    print("\n[Summarizing conversation...]")
+                    split        = len(chat_history) // 2
+                    to_summarize = chat_history[:split]
+                    chat_history = chat_history[split:]
+                    conversation_summary = await summarize_conversation(
+                        chat_model, to_summarize, conversation_summary
                     )
 
-                    verdict = rule_based_verifier(
-                        user_query=user_input,
-                        plan=plan,
-                        execution_results=execution_results,
-                        final_answer=final_answer
-                    )
-
-                    if verdict["verdict"] == "PASS":
-                        print("\n Final Answer:\n")
-                        print(final_answer)
-                        
-                        # Store in history and FAISS
-                        history.append({"user": user_input, "assistant": final_answer})
-                        faiss_index.add_texts([final_answer], metadatas=[{"source": "assistant", "timestamp": str(datetime.now())}])
-                        faiss_index.save_local(index_path)
-                        
-                        # Summarize and clear old history if threshold reached
-                        if len(history) >= SUMMARIZE_AFTER:
-                            print("\n[Summarizing conversation to reduce memory...]")
-                            conversation_summary = await summarize_conversation(planner_model, history, conversation_summary)
-                            history.clear()  # Clear old messages after summarization
-                        
-                        break
-
-                    elif verdict["verdict"] == "RETRY":
-                        retry_count += 1
-                        execution_hint = verdict["retry_hint"]
-
-                        print(f"\n Retry {retry_count}/{MAX_RETRIES}")
-                        print("Reason:", verdict["reason"])
-                        print("Hint:", execution_hint)
-
-                        continue
-
-                    else:  # FAIL
-                        print("\n Failed to retrive the answer :")
-                        print(verdict["reason"])
-                        break
-
-
+            except asyncio.CancelledError:
+                print("\nInterrupted.")
+                break
             except Exception as e:
-                print(f"\nError during agent call: {e}")
+                print(f"\nError: {str(e).split(chr(10))[0][:200]}")
                 traceback.print_exc()
-                print(f"\nPlease try again after fixing.")
 
-            
     except Exception as e:
         print(f"An error occurred: {e}")
         traceback.print_exc()
     finally:
-        # Clean up clients if needed
+        try:
+            faiss_index.save_local(index_path)
+        except Exception:
+            pass
         print("Shutting down...")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

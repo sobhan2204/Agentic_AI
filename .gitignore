@@ -1,8 +1,41 @@
+# Python
 .venv/
-__pycache__
-.cache
-OllamaSetup.exe
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Environment & Secrets
 .env
 credentials.json
 token.json
+client_secret_calendar.json
+
+# FAISS Index (generated at runtime)
+faiss_index/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Unused/Backup Files
+client_fixed_backup.py
+test_agent.py
+tool_keywords.json
+calender.py
 A
+OllamaSetup.exe
+.cache

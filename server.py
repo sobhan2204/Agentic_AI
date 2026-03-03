@@ -89,12 +89,7 @@ async def initialize_mcp():
                     "command": "python",
                     "args": ["gmail.py"],
                     "transport": "stdio",
-                },
-                "debug_tool": {
-                    "command": "python",
-                    "args": ["debug_tool.py"],
-                    "transport": "stdio",
-                },
+                }
             }
         )
         

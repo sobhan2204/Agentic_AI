@@ -155,21 +155,23 @@ def solve_numerically(func, initial_guess=1.0):
 
 
 @mcp.tool()
-def solve_math(query: str) -> dict:
+def solve_math(query: str) -> str:
     """
-    Comprehensive math solver that handles:
-    - Derivatives
-    - Integrals
-    - Equation solving
-    - Simplification
-    - Evaluation
+    Comprehensive math solver. Give it any math problem in natural language or expression form.
+    Handles: derivatives, integrals, equation solving, simplification, evaluation.
+
+    Args:
+        query: The math problem (e.g., "5 + 5", "derivative of x^2", "solve x^2 - 4 = 0")
+
+    Returns:
+        str: The solution as readable text.
     """
 
     # Step 1: LLM extraction
     try:
         parsed = extract_math_with_llm(query)
     except Exception as e:
-        return {"error": f"Failed to parse query: {str(e)}"}
+        return f"Failed to parse math query: {str(e)}"
 
     task = parsed.get("task")
     expression = parsed.get("expression", "")
@@ -181,105 +183,55 @@ def solve_math(query: str) -> dict:
             x = sp.symbols(variable)
             expr = sp.sympify(expression)
             result = sp.diff(expr, x)
-            
-            return {
-                "query": query,
-                "task": "derivative",
-                "expression": expression,
-                "variable": variable,
-                "result": str(result),
-                "latex": sp.latex(result)
-            }
+            return f"Derivative of {expression} with respect to {variable} = {result}"
 
         elif task == "integral":
             variable = parsed.get("variable", "x")
             x = sp.symbols(variable)
             expr = sp.sympify(expression)
             result = sp.integrate(expr, x)
-            
-            return {
-                "query": query,
-                "task": "integral",
-                "expression": expression,
-                "variable": variable,
-                "result": str(result) + " + C",
-                "latex": sp.latex(result) + " + C"
-            }
+            return f"Integral of {expression} d{variable} = {result} + C"
 
         elif task == "solve_equation":
             variables = parsed.get("variables", ["x"])
-            
             if len(variables) != 1:
-                return {"error": "Only single-variable equations are supported."}
-            
+                return "Only single-variable equations are supported."
+
             var = variables[0]
-            
-            # Validate
             validate_expression(expression, variables)
-            
+
             # Try symbolic solution first
             try:
                 x = sp.symbols(var)
                 sym_expr = sp.sympify(expression)
                 symbolic_solutions = sp.solve(sym_expr, x)
-                
                 if symbolic_solutions:
-                    return {
-                        "query": query,
-                        "task": "solve_equation",
-                        "expression": f"{expression} = 0",
-                        "variable": var,
-                        "solutions": [str(sol) for sol in symbolic_solutions],
-                        "method": "symbolic (SymPy)"
-                    }
+                    sols = ", ".join(str(s) for s in symbolic_solutions)
+                    return f"Solutions for {expression} = 0: {var} = {sols}"
             except:
                 pass
-            
+
             # Fallback to numerical solution
             func = build_numeric_function(expression, var)
             solutions = solve_numerically(func)
-            
-            return {
-                "query": query,
-                "task": "solve_equation",
-                "expression": f"{expression} = 0",
-                "variable": var,
-                "solutions": solutions,
-                "method": "numerical (SciPy fsolve)"
-            }
+            sols = ", ".join(str(s) for s in solutions)
+            return f"Numerical solutions for {expression} = 0: {var} ≈ {sols}"
 
         elif task == "simplify":
             expr = sp.sympify(expression)
             result = sp.simplify(expr)
-            
-            return {
-                "query": query,
-                "task": "simplify",
-                "expression": expression,
-                "result": str(result),
-                "latex": sp.latex(result)
-            }
+            return f"Simplified: {expression} = {result}"
 
         elif task == "evaluate":
             expr = sp.sympify(expression)
             result = expr.evalf()
-            
-            return {
-                "query": query,
-                "task": "evaluate",
-                "expression": expression,
-                "result": str(result)
-            }
+            return f"{expression} = {result}"
 
         else:
-            return {
-                "error": f"Unsupported task type: {task}. Supported: derivative, integral, solve_equation, simplify, evaluate"
-            }
+            return f"Unsupported task type: {task}. Supported: derivative, integral, solve_equation, simplify, evaluate"
 
     except Exception as e:
-        return {
-            "error": f"Failed to process {task}: {str(e)}"
-        }
+        return f"Failed to process {task}: {str(e)}"
 
 
 if __name__ == "__main__":
