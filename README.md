@@ -3,7 +3,6 @@
 ![Python](https://img.shields.io/badge/Python-3.13-blue?logo=python)
 ![LangChain](https://img.shields.io/badge/LangChain-Latest-orange)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Latest-green)
-![License](https://img.shields.io/badge/License-MIT-blue)
 
 > An intelligent multi-agent AI system powered by **LangChain + LangGraph + MCP (Model Context Protocol)** with **ReAct-style reasoning**. Integrates 5 specialized tool servers (Math, Weather, Translation, Web Search, Gmail) with persistent FAISS memory and FastAPI web interface.
 
@@ -361,13 +360,7 @@ Contributions welcome! To add a new tool:
 
 ---
 
-## 📄 License
-
-MIT License - see LICENSE for details
-
----
-
-## 🙏 Acknowledgments
+##  Acknowledgments
 
 - [LangChain](https://github.com/langchain-ai/langchain) for agent framework
 - [Groq](https://groq.com) for fast LLM inference
