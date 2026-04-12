@@ -1,3 +1,6 @@
+##docker run -p 8080:8080 ` --env-file .env ` -v "D:\agenticaimcp\token.json:/app/token.json" ` my-app:latest
+
+
 # 🤖 Agentic AI Multi-Tool Assistant
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue?logo=python)

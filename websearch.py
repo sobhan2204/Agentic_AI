@@ -55,7 +55,7 @@ def format_results(results: list, answer: str = "") -> str:
     return "\n\n".join(lines)
 
 
-@mcp.tool()
+@mcp.tool(name="web_search")
 def search_web(query: str) -> str:
     """
     Search the web for a query and return a detailed summary.
@@ -98,4 +98,4 @@ def search_web(query: str) -> str:
 
 if __name__ == "__main__":
     #print(search_web("What are the latest news on AI?"))
-     mcp.run(transport="stdio")
+    mcp.run(transport="stdio")

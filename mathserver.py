@@ -208,7 +208,7 @@ def solve_math(query: str) -> str:
                 if symbolic_solutions:
                     sols = ", ".join(str(s) for s in symbolic_solutions)
                     return f"Solutions for {expression} = 0: {var} = {sols}"
-            except:
+            except (sp.SympifyError, TypeError, ValueError):
                 pass
 
             # Fallback to numerical solution

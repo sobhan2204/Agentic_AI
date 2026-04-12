@@ -39,3 +39,6 @@ calender.py
 A
 OllamaSetup.exe
 .cache
+client_changes.py
+first_mcp_key.pem
+.dokcerignore

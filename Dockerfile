@@ -1,39 +1,44 @@
-# Use Python 3.11 slim image
-FROM python:3.11-slim
+FROM python:3.12-slim
 
-# Set working directory
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    # Force CPU-only torch — avoids pulling CUDA (~4GB saved)
+    PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
+
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        gcc \
+        curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
-COPY requirment.txt .
+COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirment.txt
+# Install torch CPU-only FIRST to lock the lightweight variant,
+# then install the rest. This prevents pip from upgrading to the
+# CUDA build when sentence-transformers pulls torch as a dependency.
+RUN pip install --upgrade pip \
+    && pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu \
+    && pip install -r requirements.txt
 
-# Copy application code
-COPY server.py .
-COPY .env* ./
+# Pre-download the embedding model into the image layer so it doesn't
+# fetch at runtime (no internet needed in prod, faster cold start).
+RUN python -c "\
+from sentence_transformers import SentenceTransformer; \
+SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
 
-# Create necessary directories
-RUN mkdir -p faiss_index
+COPY *.py .
+COPY website.html .
 
-# Expose port (Railway/Render will override this)
+# DO NOT bake faiss_index into the image — let it be created fresh at
+# runtime or mount it as a volume. Baking it risks stale state and bloat.
+
 EXPOSE 8080
 
-# Set environment variables for cloud deployment
-ENV PYTHONUNBUFFERED=1
-ENV ENABLE_MCP_TOOLS=false
-ENV ENABLE_FAISS_MEMORY=false
-
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
+    CMD curl -f http://localhost:8080/health || exit 1
 
-# Run the application
-CMD ["python", "server.py"]
+CMD ["python", "-m", "uvicorn", "client:app", "--host", "0.0.0.0", "--port", "8080"]

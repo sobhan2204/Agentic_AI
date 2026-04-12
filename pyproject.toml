@@ -1,5 +1,5 @@
 [project]
-name = "agentic-ai-mcp"
+name = "sobhan_ai"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -40,3 +40,5 @@ dependencies = [
     "sympy>=1.14.0",
     "tavily-python>=0.7.17",
 ]
+[project.scripts]
+sobhan-ai = "cli:run"

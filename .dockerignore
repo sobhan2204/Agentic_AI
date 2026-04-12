@@ -1,0 +1,53 @@
+# Python
+.venv/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+
+# Environment & secrets
+.env
+*.env.*
+*.pem
+token.json
+credentials.json
+
+# Databases & memory
+*.db
+*.sqlite
+
+# Docker meta
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Logs & caches
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Dev files you already had
+client_changes.py
+server.py
+executioner.py
+intent_roter.py
+main.py
+rule_based_verifier.py
+
+# Git
+.git/
+.gitignore
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Docs
+README*
+*.md
+
+# FAISS index — recreated at startup
+faiss_index/

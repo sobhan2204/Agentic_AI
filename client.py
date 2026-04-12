@@ -15,6 +15,13 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, Tool
 import json
 from itertools import cycle
 
+import re
+import uuid
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
 load_dotenv()
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
@@ -49,6 +56,29 @@ SYSTEM_PROMPT = (
     "6. Be concise but warm. Feel like a real assistant.\n"
     "7. Remember context from earlier in the conversation."
 )
+
+
+# ── FASTAPI APP ────────────────────────────────────────────────────────────────
+app = FastAPI(title="MCP Agent Web Server")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── REQUEST / RESPONSE MODELS ──────────────────────────────────────────────────
+class ChatMessage(BaseModel):
+    message: str
+
+class ChatResponse(BaseModel):
+    response: str
+    status: str = "success"
+
+# ── APP STATE ──────────────────────────────────────────────────────────────────
+backend_initialized = False
+backend_components  = {}
 
 
 # ── HELPERS ────────────────────────────────────────────────────────────────────
@@ -194,7 +224,184 @@ async def react_turn(
     return final.content.strip() if final.content else "Max steps reached."
 
 
-# ── MAIN ───────────────────────────────────────────────────────────────────────
+# ── LAZY INIT ──────────────────────────────────────────────────────────────────
+
+async def initialize_backend():
+    global backend_initialized, backend_components
+
+    if backend_initialized:
+        return backend_components
+
+    api_keys = [os.getenv(f"GROQ_API_KEY_{i}") for i in range(1, 4)]
+    api_keys = [k for k in api_keys if k]
+    if not api_keys:
+        raise HTTPException(status_code=500, detail="No GROQ API keys found in .env")
+
+    key_cycle = cycle(api_keys)
+
+    chat_model = ChatGroq(
+        model="llama-3.1-8b-instant",
+        max_tokens=800,
+        temperature=0.7,
+        api_key=next(key_cycle),
+    )
+    agent_llm = ChatGroq(
+        model="llama-3.3-70b-versatile",
+        max_tokens=1024,
+        temperature=0.0,
+        api_key=next(key_cycle),
+    )
+
+    embeddings  = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    index_path  = "faiss_index"
+    index_file  = os.path.join(index_path, "index.faiss")
+
+    faiss_index = (
+        FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
+        if os.path.exists(index_file)
+        else FAISS.from_texts(["initial text"], embeddings)
+    )
+    if not os.path.exists(index_file):
+        faiss_index.save_local(index_path)
+
+    python_exec = sys.executable
+    mcp_client  = MultiServerMCPClient({
+        "math_server": {"command": python_exec, "args": ["-u", "mathserver.py"], "transport": "stdio"},
+        "weather":     {"command": python_exec, "args": ["-u", "weather.py"],    "transport": "stdio"},
+        "Translate":   {"command": python_exec, "args": ["-u", "translate.py"],  "transport": "stdio"},
+        "websearch":   {"command": python_exec, "args": ["-u", "websearch.py"],  "transport": "stdio"},
+        "gmail":       {"command": python_exec, "args": ["-u", "gmail.py"],      "transport": "stdio"},
+    })
+
+    tools         = await mcp_client.get_tools()
+    tools_by_name = {tool.name: tool for tool in tools}
+
+    print("Tool schemas:")
+    problematic_tools = []
+    for tool in tools:
+        try:
+            if hasattr(tool.args_schema, 'model_json_schema'):
+                schema = tool.args_schema.model_json_schema()
+                props  = schema.get('properties', {})
+            else:
+                schema = tool.args_schema
+                props  = schema.get('properties', {}) if isinstance(schema, dict) else {}
+            required = schema.get('required', list(props.keys()))
+            print(f"  {tool.name}: args={list(props.keys())}, required={required}")
+        except Exception as e:
+            print(f"  {tool.name}: schema error - {str(e)[:60]}")
+            problematic_tools.append(tool.name)
+
+    try:
+        llm_with_tools = agent_llm.bind_tools(tools)
+    except Exception as e:
+        print(f"Warning: Tool binding failed ({str(e)[:100]}), retrying with selective binding")
+        working_tools  = [t for t in tools if t.name not in problematic_tools]
+        llm_with_tools = agent_llm.bind_tools(working_tools) if working_tools else agent_llm
+
+    print(f"Loaded tools: {list(tools_by_name.keys())}")
+
+    backend_components = {
+        "chat_model":     chat_model,
+        "llm_with_tools": llm_with_tools,
+        "tools_by_name":  tools_by_name,
+        "embeddings":     embeddings,
+        "faiss_index":    faiss_index,
+        "index_path":     index_path,
+    }
+    backend_initialized = True
+    return backend_components
+
+
+# ── ROUTES ─────────────────────────────────────────────────────────────────────
+
+@app.on_event("startup")
+async def startup_event():
+    await initialize_backend()
+
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_website():
+    try:
+        with open("website.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="website.html not found")
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat_endpoint(message: ChatMessage):
+    global chat_history, conversation_summary
+
+    components = await initialize_backend()
+    user_input = message.message.strip()
+    if not user_input:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    try:
+        reply = await react_turn(
+            llm_with_tools = components["llm_with_tools"],
+            tools_by_name  = components["tools_by_name"],
+            summary        = conversation_summary,
+            history        = chat_history,
+            user_input     = user_input,
+        )
+
+        chat_history.append(("user", user_input))
+        chat_history.append(("assistant", reply))
+
+        components["faiss_index"].add_texts(
+            [f"User: {user_input}", f"Assistant: {reply}"],
+            metadatas=[
+                {"source": "user",      "timestamp": str(datetime.now())},
+                {"source": "assistant", "timestamp": str(datetime.now())},
+            ],
+        )
+        components["faiss_index"].save_local(components["index_path"])
+
+        if len(chat_history) >= SUMMARIZE_AFTER * 2:
+            print("\n[Summarizing conversation...]")
+            split        = len(chat_history) // 2
+            to_summarize = chat_history[:split]
+            chat_history = chat_history[split:]
+            conversation_summary = await summarize_conversation(
+                components["chat_model"], to_summarize, conversation_summary
+            )
+
+        return ChatResponse(response=reply, status="success")
+
+    except Exception as e:
+        traceback.print_exc()
+        return ChatResponse(response=f"Error: {str(e).split(chr(10))[0][:200]}", status="error")
+
+
+@app.post("/clear")
+async def clear_chat():
+    global chat_history, conversation_summary
+
+    components = await initialize_backend()
+    components["faiss_index"] = FAISS.from_texts(
+        ["initial text"], components["embeddings"]
+    )
+    components["faiss_index"].save_local(components["index_path"])
+    chat_history         = []
+    conversation_summary = ""
+    return {"status": "success", "message": "Conversation cleared."}
+
+
+@app.get("/health")
+async def health_check():
+    return {
+        "status":              "healthy",
+        "backend_initialized": backend_initialized,
+        "tools_loaded":        list(backend_components.get("tools_by_name", {}).keys()),
+        "history_turns":       len(chat_history) // 2,
+        "has_summary":         bool(conversation_summary),
+        "timestamp":           datetime.now().isoformat(),
+    }
+
+
+# ── CLI MODE (optional) ────────────────────────────────────────────────────────
 
 async def main():
     global chat_history, conversation_summary
@@ -329,5 +536,11 @@ async def main():
         print("Shutting down...")
 
 
+# ── ENTRY POINT ────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    if len(sys.argv) > 1 and sys.argv[1] == "--cli":
+        asyncio.run(main())
+    else:
+        import uvicorn
+        uvicorn.run("client:app", host="0.0.0.0", port=8080, reload=True)
