@@ -24,6 +24,56 @@ The current implementation uses one main entrypoint:
   - `websearch.py` -> `web_search`
   - `gmail.py` -> `send_email`, `read_emails`
 
+## Workflow Diagram
+
+```mermaid
+flowchart TD
+    A[User Input] --> B{Entry Mode}
+    B -->|Web| C[FastAPI app in client.py]
+    B -->|CLI| D[Interactive loop in client.py --cli]
+
+    C --> E[initialize_backend]
+    D --> E
+
+    E --> E1[Load .env and rotate GROQ keys]
+    E1 --> E2[Load or create FAISS index]
+    E2 --> E3[Start MCP stdio tool servers]
+    E3 --> F[Bind tools to agent LLM]
+
+    F --> G[Build messages with system prompt + history + summary]
+    G --> H{ReAct step <= MAX_REACT_STEPS}
+
+    H -->|No tool call| I[Return final assistant response]
+    H -->|Tool call| J[Execute selected MCP tool]
+
+    J --> J1[Math server]
+    J --> J2[Weather/Air quality server]
+    J --> J3[Translation server]
+    J --> J4[Web search server]
+    J --> J5[Gmail server]
+
+    J1 --> K[Append ToolMessage observation]
+    J2 --> K
+    J3 --> K
+    J4 --> K
+    J5 --> K
+
+    K --> H
+    I --> L[Persist user+assistant turns to FAISS]
+    L --> M{History >= SUMMARIZE_AFTER}
+    M -->|Yes| N[Summarize older conversation]
+    M -->|No| O[Send response]
+    N --> O
+```
+
+### Flow Summary
+
+1. Input enters through web endpoint or CLI loop.
+2. Backend initializes model, memory, and MCP tool connections.
+3. Agent runs a ReAct loop and decides whether to call tools.
+4. Tool results are fed back as observations until a final answer is produced.
+5. Conversation is saved in FAISS, and older turns are summarized periodically.
+
 ## Project Structure
 
 ```text
