@@ -31,31 +31,38 @@ async def main():
     """Test all MCP servers"""
     print("MCP Server Connectivity Test")
     print("=" * 40)
+
+    python_exec = sys.executable
     
     servers = {
         "math_server": {
-            "command": "python",
+            "command": python_exec,
             "args": ["mathserver.py"],
             "transport": "stdio",
         },
         "weather": {
-            "command": "python",
+            "command": python_exec,
             "args": ["weather.py"],
             "transport": "stdio",
         },
         "Translate": {
-            "command": "python",
+            "command": python_exec,
             "args": ["translate.py"],
             "transport": "stdio",
         },
         "websearch": {
-            "command": "python",
+            "command": python_exec,
             "args": ["websearch.py"],
             "transport": "stdio",
         },
         "gmail": {
-            "command": "python",
+            "command": python_exec,
             "args": ["gmail.py"],
+            "transport": "stdio",
+        },
+        "spotify": {
+            "command": python_exec,
+            "args": ["spotify.py"],
             "transport": "stdio",
         }
     }

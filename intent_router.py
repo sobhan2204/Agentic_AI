@@ -31,11 +31,12 @@ ROUTER_PROMPT = """You are a task router for an AI assistant. Analyze the user q
 
 Available tools:
 - solve_math          : solve any math expression or calculation
-- get_current_weather : get weather for a city
+- get_weather         : get weather for a city
 - translate           : translate text to another language
 - web_search          : search the web for information, news, facts
 - send_email          : send an email (needs recipient, subject, body)
 - read_emails         : read/check emails from inbox
+- spotify_mood_recommend : recommend songs based on mood (sad/happy/focus/chill/workout), can use prior context
 
 Rules:
 1. Return ONLY valid JSON — no explanation, no markdown, no extra text.
@@ -43,7 +44,8 @@ Rules:
 3. For send_email: always extract recipient, subject, body as separate fields.
 4. For chained tasks where body = previous step output: set body to empty string "".
 5. Keep tool inputs minimal — city name only for weather, expression only for math.
-6. confidence: how sure you are this plan is correct (0.0 to 1.0).
+6. For spotify_mood_recommend: put mood text in "input". If user says "like before" or "again", include JSON input with reuse_previous=true.
+7. confidence: how sure you are this plan is correct (0.0 to 1.0).
 
 Schema:
 {
@@ -62,7 +64,7 @@ Schema:
 Examples:
 
 Query: "what is the weather in London"
-{"steps": [{"tool": "get_current_weather", "input": "London", "recipient": "", "subject": "", "body": ""}], "confidence": 1.0}
+{"steps": [{"tool": "get_weather", "input": "London", "recipient": "", "subject": "", "body": ""}], "confidence": 1.0}
 
 Query: "translate 'good morning' to French"
 {"steps": [{"tool": "translate", "input": "good morning → French", "recipient": "", "subject": "", "body": ""}], "confidence": 1.0}
@@ -78,7 +80,40 @@ Query: "what is 5 + 5"
 
 Query: "check my emails"
 {"steps": [{"tool": "read_emails", "input": "inbox", "recipient": "", "subject": "", "body": ""}], "confidence": 1.0}
+
+Query: "I feel sad, suggest songs"
+{"steps": [{"tool": "spotify_mood_recommend", "input": "I feel sad", "recipient": "", "subject": "", "body": ""}], "confidence": 1.0}
+
+Query: "play something like before"
+{"steps": [{"tool": "spotify_mood_recommend", "input": "{\"mood\": \"play something like before\", \"reuse_previous\": true}", "recipient": "", "subject": "", "body": ""}], "confidence": 1.0}
 """
+
+
+MUSIC_HINT_RE = re.compile(
+    r"\b(music|song|songs|playlist|spotify|track|mood|i feel|sad|happy|focus|calm|chill|workout|like before|again|similar vibe)\b",
+    re.IGNORECASE,
+)
+
+
+TOOL_ALIASES = {
+    "get_current_weather": "get_weather",
+    "search_web": "web_search",
+    "spotify": "spotify_mood_recommend",
+    "spotify_recommend": "spotify_mood_recommend",
+    "spotify_mood_recommender": "spotify_mood_recommend",
+}
+
+
+def _looks_like_music_query(query: str) -> bool:
+    return bool(MUSIC_HINT_RE.search(query or ""))
+
+
+def _spotify_input_for_query(query: str) -> str:
+    q = (query or "").strip()
+    lower = q.lower()
+    if any(k in lower for k in ["like before", "again", "same", "similar"]):
+        return json.dumps({"mood": q, "reuse_previous": True})
+    return q
 
 
 def _call_router_llm(query: str) -> Dict[str, Any]:
@@ -121,12 +156,16 @@ def _build_intent(step: dict) -> dict:
     For all other tools: input field is used directly.
     """
     tool = step.get("tool", "web_search")
+    tool = TOOL_ALIASES.get(tool, tool)
 
     if tool == "send_email":
         recipient  = step.get("recipient", "").strip()
         subject    = step.get("subject", "Hello").strip() or "Hello"
         body       = step.get("body", "").strip()
         tool_input = f"recipient={recipient} | subject={subject} | body={body}"
+    elif tool == "spotify_mood_recommend":
+        raw_input = step.get("input", "").strip() or step.get("mood", "").strip()
+        tool_input = raw_input or "music recommendations"
     else:
         tool_input = step.get("input", "").strip()
 
@@ -154,6 +193,19 @@ def route_intent(query: str) -> Dict[str, Any]:
         steps      = [{"tool": "web_search", "input": query,
                        "recipient": "", "subject": "", "body": ""}]
         confidence = 0.3
+
+    # Heuristic guardrail: ensure obvious mood/music queries route to spotify tool.
+    if _looks_like_music_query(query):
+        first_tool = TOOL_ALIASES.get(steps[0].get("tool", ""), steps[0].get("tool", "")) if steps else ""
+        if not steps or first_tool in {"web_search", ""}:
+            steps = [{
+                "tool": "spotify_mood_recommend",
+                "input": _spotify_input_for_query(query),
+                "recipient": "",
+                "subject": "",
+                "body": "",
+            }]
+            confidence = max(confidence, 0.78)
 
     intents   = [_build_intent(step) for step in steps]
     task_type = "multi" if len(intents) > 1 else "single"
@@ -205,6 +257,9 @@ if __name__ == "__main__":
         "check my emails",
         "search epstein files and send them to john@test.com with subject Important",
         "translate This is good to spanish",
+        "I feel sad, suggest songs",
+        "give me focus music",
+        "play something like before",
     ]
 
     for q in test_queries:

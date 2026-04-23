@@ -7,20 +7,21 @@ warnings.filterwarnings("ignore", message=r"Field name \"output_schema\" in \"Ta
 warnings.filterwarnings("ignore", message=r"Field name \"stream\" in \"TavilyResearch\" shadows", category=UserWarning)
 
 import os
-import json
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 from tavily import TavilyClient
 import concurrent.futures
+from pathlib import Path
 
 mcp = FastMCP("websearch")
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(dotenv_path=BASE_DIR / ".env", override=False)
 
-tavily_api_key = os.getenv("TAVILY_API_KEY")
-if not tavily_api_key:
-    raise ValueError("TAVILY_API_KEY is missing from .env")
-
-client = TavilyClient(api_key=tavily_api_key)
+tavily_api_key = (os.getenv("TAVILY_API_KEY") or "").strip()
+# IMPORTANT: MCP stdio servers must never print to stdout, or JSON-RPC breaks.
+# If you need diagnostics, write to stderr only.
+sys.stderr.write(f"[websearch] TAVILY_API_KEY present: {bool(tavily_api_key)}\n")
+client = TavilyClient(api_key=tavily_api_key) if tavily_api_key else None
 
 
 def with_timeout(func, timeout):
@@ -61,6 +62,13 @@ def search_web(query: str) -> str:
     Search the web for a query and return a detailed summary.
     Use this for general questions, news, facts, and current information.
     """
+    if client is None:
+        return (
+            "Web search is unavailable because TAVILY_API_KEY is not configured. "
+            "Set TAVILY_API_KEY in runtime environment variables (recommended in Docker via --env-file) "
+            f"or define it in {BASE_DIR / '.env'} for local runs."
+        )
+
     try:
         response = with_timeout(
             lambda: client.search(
