@@ -1086,6 +1086,7 @@ async def initialize_backend() -> Dict[str, Any]:
         "websearch":   {"command": python_exec, "args": ["-u", str(BASE_DIR / "websearch.py")],  "transport": "stdio", "env": mcp_env},
         "gmail":       {"command": python_exec, "args": ["-u", str(BASE_DIR / "gmail.py")],      "transport": "stdio", "env": mcp_env},
         "archive":     {"command": python_exec, "args": ["-u", str(BASE_DIR / "archive.py")],   "transport": "stdio", "env": mcp_env},
+        "spotify":     {"command": python_exec, "args": ["-u", str(BASE_DIR / "spotify.py")],   "transport": "stdio", "env": mcp_env},
     })
 
     tools         = await mcp_client.get_tools()
@@ -1312,6 +1313,8 @@ async def main():
         "websearch":   {"command": python_exec, "args": ["-u", str(BASE_DIR / "websearch.py")],  "transport": "stdio", "env": mcp_env},
         "gmail":       {"command": python_exec, "args": ["-u", str(BASE_DIR / "gmail.py")],      "transport": "stdio", "env": mcp_env},
         "archive":     {"command": python_exec, "args": ["-u", str(BASE_DIR / "archive.py")],   "transport": "stdio", "env": mcp_env},
+        "spotify":     {"command": python_exec, "args": ["-u", str(BASE_DIR / "spotify.py")],   "transport": "stdio", "env": mcp_env},
+
     })
 
     tools         = await client.get_tools()
