@@ -19,6 +19,7 @@ Run standalone for testing:
 """
 
 import sys
+import builtins
 import os
 import ast
 import io
@@ -54,11 +55,16 @@ GITHUB_API    = "https://api.github.com"
 EXEC_TIMEOUT  = 10   # seconds for code execution sandbox
 
 
+def log_stderr(message: str) -> None:
+    """Keep stdout reserved for JSON-RPC messages."""
+    builtins.print(message, file=sys.stderr, flush=True)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SHARED HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _gh_headers() -> dict:
+def gh_headers() -> dict:
     """Build GitHub API request headers. Auth token is optional but recommended."""
     headers = {
         "Accept":     "application/vnd.github+json",
@@ -69,13 +75,13 @@ def _gh_headers() -> dict:
     return headers
 
 
-def _gh_get(url: str, params: dict = None) -> dict:
+def gh_get(url: str, params: dict = None) -> dict:
     """
     Make a GitHub API GET request.
     Returns a dict with keys: ok (bool), data (any), status (int), error (str).
     """
     try:
-        resp = requests.get(url, headers=_gh_headers(), params=params or {}, timeout=15)
+        resp = requests.get(url, headers=gh_headers(), params=params or {}, timeout=15)
         if resp.status_code == 200:
             return {"ok": True, "data": resp.json(), "status": 200, "error": ""}
         else:
@@ -90,10 +96,10 @@ def _gh_get(url: str, params: dict = None) -> dict:
         return {"ok": False, "data": None, "status": 0, "error": f"Connection error: {str(e)[:120]}"}
 
 
-def _gh_post(url: str, payload: dict) -> dict:
+def gh_post(url: str, payload: dict) -> dict:
     """Make a GitHub API POST request (used for creating issues)."""
     try:
-        resp = requests.post(url, headers=_gh_headers(), json=payload, timeout=15)
+        resp = requests.post(url, headers=gh_headers(), json=payload, timeout=15)
         if resp.status_code in (200, 201):
             return {"ok": True, "data": resp.json(), "status": resp.status_code, "error": ""}
         else:
@@ -106,7 +112,7 @@ def _gh_post(url: str, payload: dict) -> dict:
         return {"ok": False, "data": None, "status": 0, "error": str(e)[:200]}
 
 
-def _decode_content(content_b64: str) -> str:
+def decode_content(content_b64: str) -> str:
     """Decode base64-encoded GitHub file content."""
     try:
         return base64.b64decode(content_b64).decode("utf-8", errors="replace")
@@ -167,7 +173,7 @@ def github_tool(
     if action == "search_repos":
         if not query:
             return "Error: 'query' is required for search_repos."
-        result = _gh_get(f"{GITHUB_API}/search/repositories", params={"q": query, "per_page": 5, "sort": "stars"})
+        result = gh_get(f"{GITHUB_API}/search/repositories", params={"q": query, "per_page": 5, "sort": "stars"})
         if not result["ok"]:
             return f"GitHub search failed ({result['status']}): {result['error']}"
         items = result["data"].get("items", [])
@@ -187,7 +193,7 @@ def github_tool(
     if action == "repo_info":
         if not owner or not repo:
             return "Error: 'owner' and 'repo' are required for repo_info."
-        result = _gh_get(f"{GITHUB_API}/repos/{owner}/{repo}")
+        result = gh_get(f"{GITHUB_API}/repos/{owner}/{repo}")
         if not result["ok"]:
             return f"Could not fetch repo info ({result['status']}): {result['error']}"
         d = result["data"]
@@ -207,17 +213,17 @@ def github_tool(
     if action == "get_readme":
         if not owner or not repo:
             return "Error: 'owner' and 'repo' are required for get_readme."
-        result = _gh_get(f"{GITHUB_API}/repos/{owner}/{repo}/readme")
+        result = gh_get(f"{GITHUB_API}/repos/{owner}/{repo}/readme")
         if not result["ok"]:
             return f"Could not fetch README ({result['status']}): {result['error']}"
-        content = _decode_content(result["data"].get("content", ""))
+        content = decode_content(result["data"].get("content", ""))
         return _truncate(f"README for {owner}/{repo}:\n\n{content}")
 
     # ── read_file ─────────────────────────────────────────────────────────────
     if action == "read_file":
         if not owner or not repo or not path:
             return "Error: 'owner', 'repo', and 'path' are required for read_file."
-        result = _gh_get(
+        result = gh_get(
             f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path.lstrip('/')}",
             params={"ref": branch},
         )
@@ -226,7 +232,7 @@ def github_tool(
         data = result["data"]
         if isinstance(data, list):
             return f"'{path}' is a directory. Use list_files to see its contents."
-        content = _decode_content(data.get("content", ""))
+        content = decode_content(data.get("content", ""))
         return _truncate(
             f"File: {owner}/{repo}/{path}  (branch: {branch})\n"
             f"Size: {data.get('size', 0):,} bytes\n\n"
@@ -238,7 +244,7 @@ def github_tool(
         if not owner or not repo:
             return "Error: 'owner' and 'repo' are required for list_files."
         url_path = path.lstrip("/") if path else ""
-        result = _gh_get(
+        result = gh_get(
             f"{GITHUB_API}/repos/{owner}/{repo}/contents/{url_path}",
             params={"ref": branch},
         )
@@ -259,7 +265,7 @@ def github_tool(
     if action == "list_issues":
         if not owner or not repo:
             return "Error: 'owner' and 'repo' are required for list_issues."
-        result = _gh_get(
+        result = gh_get(
             f"{GITHUB_API}/repos/{owner}/{repo}/issues",
             params={"state": "open", "per_page": 10},
         )
@@ -282,7 +288,7 @@ def github_tool(
     if action == "get_issue":
         if not owner or not repo or not issue_number:
             return "Error: 'owner', 'repo', and 'issue_number' are required for get_issue."
-        result = _gh_get(f"{GITHUB_API}/repos/{owner}/{repo}/issues/{issue_number}")
+        result = gh_get(f"{GITHUB_API}/repos/{owner}/{repo}/issues/{issue_number}")
         if not result["ok"]:
             return f"Could not fetch issue #{issue_number} ({result['status']}): {result['error']}"
         i = result["data"]
@@ -300,7 +306,7 @@ def github_tool(
         if not owner or not repo or not issue_title:
             return "Error: 'owner', 'repo', and 'issue_title' are required for create_issue."
         payload = {"title": issue_title, "body": issue_body or ""}
-        result  = _gh_post(f"{GITHUB_API}/repos/{owner}/{repo}/issues", payload)
+        result  = gh_post(f"{GITHUB_API}/repos/{owner}/{repo}/issues", payload)
         if not result["ok"]:
             return f"Could not create issue ({result['status']}): {result['error']}"
         i = result["data"]
@@ -321,7 +327,7 @@ def github_tool(
 #  TOOL 2 — CODE EXECUTOR
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _run_python_safe(code: str, timeout: int = EXEC_TIMEOUT) -> dict:
+def run_python_safe(code: str, timeout: int = EXEC_TIMEOUT) -> dict:
     """
     Execute Python code in a subprocess sandbox.
     Returns dict: stdout, stderr, error, exit_code, timed_out.
@@ -393,7 +399,7 @@ def code_executor(code: str, language: str = "python") -> str:
     if not code or not code.strip():
         return "Error: No code provided to execute."
 
-    result = _run_python_safe(code.strip())
+    result = run_python_safe(code.strip())
 
     parts = []
 
@@ -532,7 +538,7 @@ def code_writer(
 
     # ── Optionally execute ────────────────────────────────────────────────────
     if run_after_writing:
-        exec_result = _run_python_safe(generated_code)
+        exec_result = run_python_safe(generated_code)
         if exec_result["timed_out"]:
             parts.append("⏱️  Execution: Timed out.")
         elif exec_result["exit_code"] == 0:
@@ -684,8 +690,8 @@ def github_run_review(
         )
 
     # ── Step 1: Fetch file from GitHub ────────────────────────────────────────
-    print(f"[github_run_review] Fetching {owner}/{repo}/{path} @ {branch}")
-    gh_result = _gh_get(
+    log_stderr(f"[github_run_review] Fetching {owner}/{repo}/{path} @ {branch}")
+    gh_result = gh_get(
         f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path.lstrip('/')}",
         params={"ref": branch},
     )
@@ -700,13 +706,13 @@ def github_run_review(
     if isinstance(data, list):
         return f"'{path}' is a directory. Please provide a path to a specific .py file."
 
-    code = _decode_content(data.get("content", ""))
+    code = decode_content(data.get("content", ""))
     if not code.strip():
         return f"The file '{path}' appears to be empty."
 
     # ── Step 2: Execute the code ──────────────────────────────────────────────
-    print(f"[github_run_review] Executing {len(code)} chars of Python...")
-    exec_result = _run_python_safe(code)
+    log_stderr(f"[github_run_review] Executing {len(code)} chars of Python...")
+    exec_result = run_python_safe(code)
 
     # ── Step 3: Review ────────────────────────────────────────────────────────
     review = _review_code(code, exec_result)
@@ -741,8 +747,11 @@ def github_run_review(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    print("Starting Developer Tools MCP server...")
-    print("Tools registered:")
+    print = lambda *args, **kwargs: builtins.print(  # noqa: A001
+        *args, file=sys.stderr, flush=True, **kwargs
+    )
+    log_stderr("Starting Developer Tools MCP server...")
+    log_stderr("Tools registered:")
     print("  • github_tool        — GitHub API (search, read, issues)")
     print("  • code_executor      — Python sandbox execution")
     print("  • code_writer        — Code generation + static analysis")
