@@ -1,0 +1,22 @@
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# Minimal deps for user tool scripts — the MCP protocol library plus
+# `requests` (the most common thing a tool script needs to import even
+# though the container has no network access to actually use it).
+# No app code, no langchain stack, no .env, no credentials. This image only
+# ever runs one untrusted user script at a time inside a locked-down,
+# network-less container.
+RUN python -m pip install --upgrade pip \
+    && python -m pip install "mcp==1.27.0" "requests==2.32.3"
+
+RUN useradd --no-create-home --uid 10001 sandbox
+USER sandbox
+
+ENTRYPOINT ["python"]
