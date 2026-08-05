@@ -18,11 +18,13 @@ def get_credentials() -> Credentials:
         creds = Credentials.from_authorized_user_file("/app/token.json", SCOPES)
     
     # Strategy 2: token passed as env var (base64-encoded JSON string)
-    elif os.getenv("GMAIL_TOKEN_JSON"):
-        token_data = json.loads(
-            base64.b64decode(os.getenv("GMAIL_TOKEN_JSON")).decode()
-        )
-        creds = Credentials.from_authorized_user_info(token_data, SCOPES)
+    from pathlib import Path
+
+    BASE_DIR = Path(__file__).resolve().parent
+    TOKEN_PATH = BASE_DIR / "token.json"
+
+    if TOKEN_PATH.exists():
+     creds = Credentials.from_authorized_user_file(str(TOKEN_PATH),SCOPES)
     
     if not creds:
         raise RuntimeError(
